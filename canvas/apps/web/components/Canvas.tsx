@@ -69,6 +69,8 @@ import {
 	Stage,
 	Text,
 } from "react-konva";
+import type { GhostPreview } from "../hooks/useGhostPreviews";
+import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
 import {
@@ -92,8 +94,8 @@ import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
+import GhostLayer from "./canvas/GhostLayer";
 import { HeaderLeft, HeaderRight } from "./canvas/Header";
-
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RotationControls } from "./canvas/RotationControls";
@@ -522,7 +524,16 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		redo,
 		canUndo,
 		canRedo,
+		awareness,
 	} = useYjsSync(roomId, token ?? null);
+
+	// ─────────────────────────────────────────────────────────────────
+	// GHOST PREVIEWS - Live collaborative drawing previews
+	// Uses Y.js awareness (NOT Y.Doc) for zero-latency broadcasting
+	// ─────────────────────────────────────────────────────────────────
+
+	const { remoteGhosts, broadcastGhost, clearGhost } =
+		useGhostPreviews(awareness);
 
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT PERSISTENCE - Save/restore camera position per room
@@ -570,6 +581,89 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		if (elements.length === 0) return 1;
 		return Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
 	}, [elements]);
+
+	// ─────────────────────────────────────────────────────────────────
+	// GHOST PREVIEW BROADCASTING
+	// Broadcasts current drawing state to remote users via awareness
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * Broadcasts current drawing state as a ghost preview to remote users.
+	 * Uses Y.js awareness (NOT Y.Doc) — no document writes.
+	 * Throttled internally by useGhostPreviews hook (16ms / ~60fps).
+	 */
+	const broadcastDrawingPreview = useCallback(
+		(element: Record<string, unknown> & { type?: string }) => {
+			if (!element.type) return;
+
+			const validTypes = [
+				"rectangle",
+				"ellipse",
+				"diamond",
+				"line",
+				"arrow",
+				"freedraw",
+				"freehand",
+			];
+			if (!validTypes.includes(element.type)) return;
+
+			// Build flat points array for line-based elements
+			let flatPoints: number[] = [];
+			const rawPoints = (element as Record<string, unknown>).points;
+			if (Array.isArray(rawPoints) && rawPoints.length > 0) {
+				if (typeof rawPoints[0] === "number") {
+					// Already flat [x,y,x,y,...] (freedraw)
+					flatPoints = rawPoints as number[];
+				} else if (
+					Array.isArray(rawPoints[0]) &&
+					typeof rawPoints[0][0] === "number"
+				) {
+					// Tuple array [[x,y],[x,y],...] (freedraw points ref)
+					flatPoints = (rawPoints as Array<[number, number]>).flatMap((p) => [
+						p[0],
+						p[1],
+					]);
+				} else if (
+					typeof rawPoints[0] === "object" &&
+					"x" in (rawPoints[0] as Record<string, unknown>)
+				) {
+					// Object array [{x,y},{x,y},...] (line/arrow points)
+					flatPoints = (rawPoints as Array<{ x: number; y: number }>).flatMap(
+						(p) => [p.x, p.y],
+					);
+				}
+			}
+
+			broadcastGhost({
+				type: element.type as GhostPreview["type"],
+				x: (element.x as number) || 0,
+				y: (element.y as number) || 0,
+				width: (element.width as number) || 0,
+				height: (element.height as number) || 0,
+				points: flatPoints,
+				strokeColor: (element.strokeColor as string) || currentStrokeColor,
+				strokeWidth: (element.strokeWidth as number) || currentStrokeWidth,
+				fillColor:
+					(element.backgroundColor as string) || currentBackgroundColor,
+				strokeStyle:
+					(element.strokeStyle as GhostPreview["strokeStyle"]) || "solid",
+				clientName: "",
+				clientColor: "",
+			});
+		},
+		[
+			broadcastGhost,
+			currentStrokeColor,
+			currentStrokeWidth,
+			currentBackgroundColor,
+		],
+	);
+
+	// Clear ghost preview when tool changes (cancel any in-progress preview)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: activeTool is intentionally included to trigger clearGhost when tool changes
+	useEffect(() => {
+		clearGhost();
+	}, [activeTool, clearGhost]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// LOCAL STATE for drawing
@@ -1604,6 +1698,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						width,
 						height,
 					} as CanvasElement);
+					// Broadcast ghost preview to remote users
+					broadcastDrawingPreview({
+						...drawingElement,
+						x,
+						y,
+						width,
+						height,
+					});
 					break;
 				}
 
@@ -1624,6 +1726,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						width: Math.abs(dx),
 						height: Math.abs(dy),
 					} as CanvasElement);
+					// Broadcast ghost preview to remote users
+					broadcastDrawingPreview({
+						...lineElement,
+						points: newPoints,
+						width: Math.abs(dx),
+						height: Math.abs(dy),
+					});
 					break;
 				}
 
@@ -1635,6 +1744,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						...drawingElement,
 						points: freedrawPointsRef.current,
 					} as FreedrawElement);
+					// Broadcast ghost preview to remote users
+					broadcastDrawingPreview({
+						...drawingElement,
+						points: freedrawPointsRef.current,
+					});
 					break;
 				}
 			}
@@ -1656,6 +1770,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			elements,
 			deleteElements,
 			currentStrokeWidth,
+			broadcastDrawingPreview,
 		],
 	);
 
@@ -1667,6 +1782,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 * 2. Reset drawing state
 	 */
 	const handleMouseUp = useCallback(() => {
+		// Clear ghost preview immediately — before any commit logic
+		clearGhost();
+
 		// Finalize drawing
 		if (isDrawing && drawingElement) {
 			// Freedraw: simplified, no pressure calculation
@@ -1740,6 +1858,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setInteractionStartPoint,
 		activeTool,
 		getNextZIndex,
+		clearGhost,
 	]);
 
 	/**
@@ -2186,6 +2305,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 								/>
 							))}
 				</Layer>
+
+				{/* Ghost Layer: Remote users' live drawing previews */}
+				{/* Completely isolated: listening={false}, no zIndex, no selection */}
+				<GhostLayer remoteGhosts={remoteGhosts} />
 			</Stage>
 
 			{/* Help Text (bottom right) */}

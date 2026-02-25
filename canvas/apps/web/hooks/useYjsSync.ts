@@ -46,6 +46,18 @@ interface AwarenessState {
 /**
  * Return type of the hook
  */
+/**
+ * Awareness interface for ghost preview broadcasting
+ * Matches HocuspocusProvider.awareness API surface
+ */
+export interface AwarenessInstance {
+	clientID: number;
+	setLocalStateField: (field: string, value: unknown) => void;
+	getStates: () => Map<number, Record<string, unknown>>;
+	on: (event: string, callback: (...args: unknown[]) => void) => void;
+	off: (event: string, callback: (...args: unknown[]) => void) => void;
+}
+
 interface UseYjsSyncReturn {
 	doc: Y.Doc;
 	provider: HocuspocusProvider | null;
@@ -59,6 +71,8 @@ interface UseYjsSyncReturn {
 	redo: () => void;
 	canUndo: boolean;
 	canRedo: boolean;
+	/** Y.js awareness instance for ghost preview broadcasting */
+	awareness: AwarenessInstance | null;
 }
 
 // ============================================================================
@@ -394,5 +408,6 @@ export function useYjsSync(
 		redo,
 		canUndo,
 		canRedo,
+		awareness: (providerRef.current?.awareness as AwarenessInstance) ?? null,
 	};
 }
