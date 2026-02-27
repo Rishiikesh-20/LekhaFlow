@@ -17,6 +17,15 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
 	next();
 });
 
+// Health check endpoint (used by Docker & load balancers)
+app.get("/health", (_req: Request, res: Response) => {
+	res.status(200).json({
+		status: "ok",
+		service: "http-backend",
+		timestamp: new Date().toISOString(),
+	});
+});
+
 app.use("/api/v1", router);
 
 app.use(globalErrorHandler);
