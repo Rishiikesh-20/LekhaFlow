@@ -154,6 +154,12 @@ export interface ExcalidrawElementBase {
 	/** Timestamp of creation (Unix epoch) */
 	created?: number;
 
+	/** Name of the user who created this element */
+	createdBy?: string;
+
+	/** Name of the user who last modified this element */
+	lastModifiedBy?: string;
+
 	/** Explicit z-index for layering */
 	zIndex?: number;
 }
