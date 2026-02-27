@@ -27,3 +27,10 @@ export const UpdateCanvasSchema = z.object({
 });
 
 export type UpdateCanvasType = z.infer<typeof UpdateCanvasSchema>;
+
+export const SaveVersionSchema = z.object({
+	name: z.string().min(1, "Version name is required").max(100),
+	snapshot: z.string().min(1, "Snapshot is required"),
+});
+
+export type SaveVersionType = z.infer<typeof SaveVersionSchema>;

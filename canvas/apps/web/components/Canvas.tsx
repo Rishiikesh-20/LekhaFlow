@@ -89,6 +89,8 @@ import {
 	useCollaboratorsArray,
 	useElementsArray,
 } from "../store/canvas-store";
+import { ActivitySidebar } from "./canvas/ActivitySidebar";
+import { AttributionTooltip } from "./canvas/AttributionTooltip";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
@@ -101,6 +103,7 @@ import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RotationControls } from "./canvas/RotationControls";
 // Import components directly to avoid circular dependencies through barrel exports
 import { Toolbar } from "./canvas/Toolbar";
+import { VersionsPanel } from "./canvas/VersionsPanel";
 import { ZoomControls } from "./canvas/ZoomControls";
 
 // ============================================================================
@@ -520,6 +523,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		deleteElements,
 		updateCursor,
 		updateSelection,
+		restoreVersion,
 		undo,
 		redo,
 		canUndo,
@@ -710,11 +714,21 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// Clipboard for copy/paste
 	const [clipboard, setClipboard] = useState<CanvasElement[]>([]);
 
+	// Attribution tooltip state (hover inspection – Story 7)
+	const [hoveredElement, setHoveredElement] = useState<CanvasElement | null>(
+		null,
+	);
+	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({
+		x: 0,
+		y: 0,
+	});
+
 	// Context menu state
 	const [contextMenu, setContextMenu] = useState<{
 		x: number;
 		y: number;
 		visible: boolean;
+		metadata?: { createdBy?: string; lastModifiedBy?: string };
 	}>({
 		x: 0,
 		y: 0,
@@ -1145,13 +1159,29 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			e.preventDefault();
 			// Block context menu in read-only mode
 			if (isReadOnly) return;
+
+			let metadata: { createdBy?: string; lastModifiedBy?: string } | undefined;
+
+			// Extract metadata if exactly one element is selected
+			if (selectedElementIds.size === 1) {
+				const selectedId = Array.from(selectedElementIds)[0];
+				const element = elements.find((el) => el.id === selectedId);
+				if (element && (element.createdBy || element.lastModifiedBy)) {
+					metadata = {
+						createdBy: element.createdBy,
+						lastModifiedBy: element.lastModifiedBy,
+					};
+				}
+			}
+
 			setContextMenu({
 				x: e.clientX,
 				y: e.clientY,
 				visible: true,
+				metadata,
 			});
 		},
-		[isReadOnly],
+		[isReadOnly, selectedElementIds, elements],
 	);
 
 	/**
@@ -1616,6 +1646,23 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				updateCursor({ x: pos.x, y: pos.y });
 			}
 
+			// Attribution tooltip – detect hovered element (only when idle)
+			if (
+				activeTool === "selection" &&
+				!isDrawing &&
+				!isDragging &&
+				!resizingElement &&
+				!rotatingElement
+			) {
+				const el = getElementAtPoint(point, elements);
+				setHoveredElement(el ?? null);
+				if (pos) {
+					setTooltipPos({ x: e.evt.clientX, y: e.evt.clientY });
+				}
+			} else {
+				setHoveredElement(null);
+			}
+
 			// Handle hand tool panning
 			if (isDragging && activeTool === "hand" && interactionStartPoint) {
 				const dx = point.x - interactionStartPoint.x;
@@ -1770,6 +1817,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			elements,
 			deleteElements,
 			currentStrokeWidth,
+			resizingElement,
+			rotatingElement,
 			broadcastDrawingPreview,
 		],
 	);
@@ -2147,6 +2196,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleMouseLeave = useCallback(() => {
 		updateCursor(null);
+		setHoveredElement(null);
 	}, [updateCursor]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -2317,11 +2367,19 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				shortcuts
 			</div>
 
+			{/* Attribution Tooltip (hover inspection – Story 7) */}
+			<AttributionTooltip
+				element={hoveredElement}
+				x={tooltipPos.x}
+				y={tooltipPos.y}
+			/>
+
 			{/* Context Menu */}
 			<ContextMenu
 				x={contextMenu.x}
 				y={contextMenu.y}
 				isVisible={contextMenu.visible}
+				metadata={contextMenu.metadata}
 				hasSelection={selectedElementIds.size > 0}
 				onClose={closeContextMenu}
 				onCopy={handleCopy}
@@ -2396,6 +2454,19 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				elements={elements}
 				stageRef={stageRef}
 				initialFormat={exportFormat}
+			/>
+
+			{/* Activity Log Sidebar */}
+			<ActivitySidebar />
+
+			{/* Named Versions Sidebar */}
+			<VersionsPanel
+				token={token}
+				onRestore={(snapshot) =>
+					restoreVersion(
+						snapshot as Record<string, import("@repo/common").CanvasElement>,
+					)
+				}
 			/>
 		</div>
 	);

@@ -16,7 +16,6 @@
 
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import type { CanvasElement, Collaborator, Point } from "@repo/common";
-import { clientEnv } from "@repo/config/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { useCanvasStore } from "../store";
@@ -25,7 +24,9 @@ import { useCanvasStore } from "../store";
 // CONFIGURATION
 // ============================================================================
 
-const WS_URL = clientEnv.NEXT_PUBLIC_WS_URL;
+// Use process.env directly so Next.js substitutes values from apps/web/.env.
+// @repo/config/client does NOT receive NEXT_PUBLIC_* from the app's .env.
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8001";
 
 // ============================================================================
 // TYPES
@@ -67,6 +68,7 @@ interface UseYjsSyncReturn {
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
 	getYElements: () => Y.Map<CanvasElement>;
+	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
 	undo: () => void;
 	redo: () => void;
 	canUndo: boolean;
@@ -107,6 +109,7 @@ export function useYjsSync(
 		setConnectionStatus,
 		setRoomId,
 		setSavingStatus,
+		addActivityLogEntry,
 		myName,
 		myColor,
 	} = useCanvasStore();
@@ -115,6 +118,7 @@ export function useYjsSync(
 	const myNameRef = useRef(myName);
 	const myColorRef = useRef(myColor);
 	const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const hasSyncedRef = useRef(false);
 
 	// Keep refs in sync and update awareness when identity changes
 	useEffect(() => {
@@ -169,6 +173,7 @@ export function useYjsSync(
 				console.log("[Hocuspocus] Synced");
 				setConnectionStatus(true, true);
 				setSavingStatus("saved");
+				hasSyncedRef.current = true;
 
 				// Set local awareness state using refs (not reactive values)
 				provider.awareness?.setLocalStateField("user", {
@@ -217,7 +222,21 @@ export function useYjsSync(
 		// ELEMENT OBSERVER
 		// ─────────────────────────────────────────────────────────────────
 
-		const handleElementsChange = () => {
+		// Helper: convert element type to human-readable label
+		const formatElementType = (type: string): string => {
+			const labels: Record<string, string> = {
+				rectangle: "Rectangle",
+				ellipse: "Ellipse",
+				diamond: "Diamond",
+				line: "Line",
+				arrow: "Arrow",
+				freedraw: "Drawing",
+				text: "Text",
+			};
+			return labels[type] || type;
+		};
+
+		const handleElementsChange = (event?: Y.YMapEvent<CanvasElement>) => {
 			const elementsObj = yElements.toJSON() as Record<string, CanvasElement>;
 			const elementsMap = new Map<string, CanvasElement>();
 
@@ -228,6 +247,59 @@ export function useYjsSync(
 			}
 
 			setElements(elementsMap);
+
+			// ── Generate activity log entries from the Y.Map event ──
+			if (event && hasSyncedRef.current) {
+				event.changes.keys.forEach((change, key) => {
+					// Determine user name/color — use awareness for remote,
+					// fall back to local identity
+					let userName = myNameRef.current;
+					let userColor = myColorRef.current;
+
+					// Check if the change came from a remote client
+					if (
+						event.transaction.origin !== null &&
+						providerRef.current?.awareness
+					) {
+						const states = providerRef.current.awareness.getStates();
+						// Find the first remote user (heuristic: last writer wins visually)
+						states.forEach((state: unknown, clientId: number) => {
+							if (clientId === doc.clientID) return;
+							const s = state as
+								| { user?: { name: string; color: string } }
+								| undefined;
+							if (s?.user?.name) {
+								userName = s.user.name;
+								userColor = s.user.color;
+							}
+						});
+					}
+
+					const element = yElements.get(key);
+					const elementType = element
+						? formatElementType(element.type)
+						: "Element";
+
+					let action: "added" | "updated" | "deleted";
+					if (change.action === "add") {
+						action = "added";
+					} else if (change.action === "update") {
+						// If update made it "isDeleted", treat as deleted
+						action = element?.isDeleted ? "deleted" : "updated";
+					} else {
+						action = "deleted";
+					}
+
+					addActivityLogEntry({
+						id: `${key}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+						timestamp: Date.now(),
+						userName,
+						userColor,
+						action,
+						elementType,
+					});
+				});
+			}
 
 			// Track saving status: mark as "saving" when changes occur,
 			// then "saved" after the debounce period (matches ws-backend's 3s debounce)
@@ -243,7 +315,10 @@ export function useYjsSync(
 		};
 
 		yElements.observe(handleElementsChange);
+		// Initial load — call without event so no logs are generated
 		handleElementsChange();
+		// After initial hydration, allow future changes to be logged
+		hasSyncedRef.current = true;
 
 		// ─────────────────────────────────────────────────────────────────
 		// AWARENESS OBSERVER
@@ -310,6 +385,7 @@ export function useYjsSync(
 		setConnectionStatus,
 		setRoomId,
 		setSavingStatus,
+		addActivityLogEntry,
 		getYElements,
 	]);
 
@@ -321,7 +397,12 @@ export function useYjsSync(
 		(element: CanvasElement) => {
 			const yElements = getYElements();
 			doc.transact(() => {
-				yElements.set(element.id, element);
+				const enrichedElement = {
+					...element,
+					createdBy: element.createdBy || myNameRef.current,
+					lastModifiedBy: element.lastModifiedBy || myNameRef.current,
+				};
+				yElements.set(enrichedElement.id, enrichedElement as CanvasElement);
 			});
 		},
 		[doc, getYElements],
@@ -342,6 +423,7 @@ export function useYjsSync(
 				yElements.set(id, {
 					...existing,
 					...updates,
+					lastModifiedBy: myNameRef.current,
 					version: newVersion,
 					updated: Date.now(),
 				} as CanvasElement);
@@ -383,6 +465,40 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
 	}, []);
 
+	/**
+	 * Restore canvas to a saved version snapshot.
+	 * Performs a "hard reset": deletes all current elements and recreates
+	 * from the snapshot in a single Yjs transaction.
+	 * This automatically propagates to all connected clients.
+	 */
+	const restoreVersion = useCallback(
+		(snapshot: Record<string, CanvasElement>) => {
+			const yElements = getYElements();
+
+			doc.transact(() => {
+				// Phase 1: Delete all existing elements
+				const existingKeys = Array.from(yElements.keys());
+				for (const key of existingKeys) {
+					yElements.delete(key);
+				}
+
+				// Phase 2: Recreate all elements from snapshot
+				for (const [id, element] of Object.entries(snapshot)) {
+					if (!element.isDeleted) {
+						yElements.set(id, element);
+					}
+				}
+			});
+
+			console.log(
+				"[Yjs] Version restored:",
+				Object.keys(snapshot).length,
+				"elements",
+			);
+		},
+		[doc, getYElements],
+	);
+
 	const undo = useCallback(() => {
 		undoManagerRef.current?.undo();
 	}, []);
@@ -404,6 +520,7 @@ export function useYjsSync(
 		updateCursor,
 		updateSelection,
 		getYElements,
+		restoreVersion,
 		undo,
 		redo,
 		canUndo,

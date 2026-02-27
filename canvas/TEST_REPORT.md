@@ -967,3 +967,299 @@ The application uses **Google OAuth 2.0** via Supabase for authentication. There
 ---
 
 > **Last updated:** February 12, 2026 — 236 total tests across 18 test files.
+
+
+
+## 1 — Canvas Creation and Management
+
+### 1.1 Create New Canvas
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.1.1 Schema update** | packages/supabase/src/types.ts — `canvases` table (id, name, slug, owner_id, is_public, data, is_deleted, thumbnail_url, folder_id…) | ✅ Done |
+| **1.1.2 Secure create endpoint** | apps/http-backend/src/routes/canvas.ts — `POST /api/v1/canvas` with `authMiddleware`; apps/http-backend/src/controller/canvas.ts — `createCanvas` handler validates via Zod, extracts `userId` from `req.user` | ✅ Done |
+| **1.1.3 API Service** | apps/http-backend/src/services/canvas.ts — `createCanvasService()` generates slug, inserts into DB | ✅ Done |
+| **1.1.4 Create modal UI** | apps/web/app/page.tsx — `handleCreateCanvas()` sends POST, redirects to `/canvas/:roomId`; apps/web/components/Dashboard.tsx — create canvas button | ✅ Done (inline, no modal) |
+| **1.1.5 Security test** | apps/http-backend/src/controller/canvas.test.ts — tests unauthorized access (no header, invalid token), ownership enforcement (ignores malicious `owner_id` in body) | ✅ Done |
+
+### 1.2 Name Canvas
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.2.1 Migration** | packages/supabase/src/types.ts — `canvases.name` column (string, 1–50 chars) | ✅ Done |
+| **1.2.2 Update endpoint** | apps/http-backend/src/routes/canvas.ts — `PUT /api/v1/canvas/:roomId`; apps/http-backend/src/controller/canvas.ts — `updateCanvas`; apps/http-backend/src/services/canvas.ts — `updateCanvasService()` | ✅ Done |
+| **1.2.3 Header component** | apps/web/components/canvas/Header.tsx — `Header` component has inline editable canvas name input, PUT on blur | ✅ Done |
+| **1.2.4 Debounce logic** | apps/web/components/canvas/Header.tsx — saves on blur (not debounced keystroke-by-keystroke, but on commit) | ✅ Done |
+| **1.2.5 Store update** | apps/web/store/canvas-store.ts — no dedicated canvas name field (name stored server-side, fetched in Header) | ⚠️ Partial (name lives in Header local state) |
+
+### 1.3 Canvas Size & Background
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.3.1 Infinite canvas** | apps/web/components/Canvas.tsx — pan with hand tool, `setScroll`; apps/web/store/canvas-store.ts — `scrollX/scrollY/zoom` state | ✅ Done |
+| **1.3.2 Background grid** | apps/web/components/Canvas.tsx — dot-grid background rendered in Konva Stage | ✅ Done |
+| **1.3.3 Background color** | apps/web/components/canvas/PropertiesPanel.tsx — Fill/Background color selection; apps/web/store/canvas-store.ts — `currentBackgroundColor` | ✅ Done (per-element, not canvas-wide) |
+| **1.3.4 Background picker** | apps/web/components/canvas/PropertiesPanel.tsx — 8 preset colors + transparent swatch picker | ✅ Done |
+
+### 1.4 View All Canvases
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.4.1 Indexing** | packages/supabase/src/types.ts — canvases table schema with `owner_id`, `is_deleted` filtering | ✅ Done |
+| **1.4.2 List endpoint** | apps/http-backend/src/routes/canvas.ts — `GET /api/v1/canvas`; apps/http-backend/src/services/canvas.ts — `getCanvasesService()` merges owned + shared (via `activity_logs`) | ✅ Done |
+| **1.4.3 Dashboard page** | apps/web/components/Dashboard.tsx — grid/list toggle, canvas cards, empty state | ✅ Done |
+| **1.4.4 Canvas card component** | apps/web/components/Dashboard.tsx — inline canvas card with thumbnail (or grid-pattern fallback), name, "Shared" badge, date, delete button | ✅ Done |
+| **1.4.5 Data fetching** | apps/web/components/Dashboard.tsx — `useEffect` → `GET /api/v1/canvas` with auth header; apps/web/app/page.tsx — renders `<Dashboard>` when authenticated | ✅ Done |
+
+### 1.5 Canvas Preview Thumbnails
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.5.1 Setup bucket** | Not in codebase — thumbnails stored as `thumbnail_url` in packages/supabase/src/types.ts (canvases table column). No Supabase Storage bucket setup code found | ⚠️ Schema only |
+| **1.5.2 Capture utility** | Canvas.tsx — debounced thumbnail capture: `stageRef.current.toDataURL()` with 2s debounce | ✅ Done |
+| **1.5.3 Save trigger** | Canvas.tsx — auto-triggered on element changes (debounced) | ✅ Done |
+| **1.5.4 Upload handler** | Canvas.tsx — `PUT /api/v1/canvas/:roomId` with `{ thumbnail_url: dataURL }`; apps/http-backend/src/services/canvas.ts — `updateCanvasService()` persists `thumbnail_url` | ✅ Done (base64 inline, not bucket) |
+| **1.5.5 Display** | apps/web/components/Dashboard.tsx — thumbnail `<img>` on canvas cards, grid-pattern SVG fallback | ✅ Done |
+
+### 1.6 Duplicate Canvas
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.6.1 Duplicate endpoint** | Not implemented — no duplicate endpoint in apps/http-backend/src/routes/canvas.ts | ❌ Missing |
+| **1.6.2 Deep copy** | Not implemented | ❌ Missing |
+| **1.6.3 Action menu** | Not implemented | ❌ Missing |
+| **1.6.4 Optimistic UI** | Not implemented | ❌ Missing |
+
+### 1.7 Delete Canvas
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.7.1 Soft delete** | apps/http-backend/src/services/canvas.ts — `deleteCanvasService()` sets `is_deleted=true, deleted_at=now()`; packages/supabase/src/types.ts — `is_deleted`, `deleted_at` columns | ✅ Done |
+| **1.7.2 Archive endpoint** | apps/http-backend/src/routes/canvas.ts — `DELETE /api/v1/canvas/:roomId`; apps/http-backend/src/controller/canvas.ts — `deleteCanvas` | ✅ Done |
+| **1.7.3 Delete action** | apps/web/components/Dashboard.tsx — delete button on canvas card, confirm dialog, `DELETE` fetch | ✅ Done |
+| **1.7.4 Cache update** | apps/web/components/Dashboard.tsx — `setCanvases(prev => prev.filter(...))` after successful delete (optimistic-ish) | ✅ Done |
+
+### 1.8 Archive Canvas
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **1.8.1 Schema** | packages/supabase/src/types.ts — `is_deleted` + `deleted_at` columns (reused for archive pattern) | ⚠️ Partial (uses soft-delete as archive) |
+| **1.8.2 Toggle archive** | Not implemented — no toggle (only one-way soft delete) | ❌ Missing |
+| **1.8.3 Archive filter** | apps/http-backend/src/services/canvas.ts — `getCanvasesService()` filters `is_deleted = false` | ⚠️ Partial (filters out but no "view archived") |
+| **1.8.4 Read-only mode** | apps/web/store/canvas-store.ts — `isReadOnly` state + `setReadOnly()`; apps/web/components/Canvas.tsx — blocks drawing/editing in read-only; apps/web/components/canvas/Toolbar.tsx — disables tools when locked | ✅ Done (general read-only, not archive-specific) |
+
+---
+
+## 2 — Drawing and Creative Tools
+
+### 2.1 Freehand Pen & Eraser Tool
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.1.1 Perfect Freehand Integration** | apps/web/lib/stroke-utils.ts — `getStrokeOutline()` wraps `perfect-freehand`'s `getStroke()`, `getStrokeOptions()`, `getSvgPathFromStroke()` | ✅ Done |
+| **2.1.2 Konva Line Rendering** | Canvas.tsx — `renderElement` case `"freedraw"`: renders as Konva `<Path>` (perfect-freehand SVG) with dashed/dotted variants falling back to `<Line>` | ✅ Done |
+| **2.1.3 Eraser Logic** | apps/web/components/Canvas.tsx — eraser tool uses `isErasingRef`, `erasedElementsRef`, hit-tests during mouse move, calls `deleteElements()` on intersecting elements | ✅ Done |
+| **2.1.4 Point Simplification** | apps/web/lib/stroke-utils.ts — `simplifyPath()` (Ramer-Douglas-Peucker algorithm), `simplifyByDistance()`; apps/web/components/Canvas.tsx — used in `handleMouseUp` for freedraw | ✅ Done |
+
+### 2.2 Basic Shape Drawing
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.2.1 Shape Factory** | apps/web/lib/element-utils.ts — `createBaseElement()`, `createRectangle()`, `createEllipse()`, `createDiamond()`, `createShape()` factory with type dispatch | ✅ Done |
+| **2.2.2 Diamond Shape** | apps/web/lib/element-utils.ts — `createDiamond()`; apps/web/components/Canvas.tsx — `renderElement` case `"diamond"` (closed `<Line>` polygon) | ✅ Done |
+| **2.2.3 Aspect Ratio Lock (Shift)** | apps/web/lib/element-utils.ts — `createShape()` `modifiers.shift` → forces equal width/height; apps/web/components/Canvas.tsx — `shiftPressed` state tracked via keydown/keyup | ✅ Done |
+| **2.2.4 Center Scaling (Alt)** | apps/web/lib/element-utils.ts — `createShape()` `modifiers.alt` → draws from center; apps/web/components/Canvas.tsx — `altPressed` state tracked | ✅ Done |
+
+### 2.3 Text Tool
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.3.1 Input Overlay** | apps/web/components/Canvas.tsx — inline `<textarea>` overlay positioned at canvas coordinates, `editingText` local state, `textareaRef` | ✅ Done |
+| **2.3.2 Konva Text Rendering** | apps/web/components/Canvas.tsx — `renderElement` case `"text"` → Konva `<Text>` with fontSize, fontFamily, alignment | ✅ Done |
+| **2.3.3 Yjs Text Synchronization** | apps/web/hooks/useYjsSync.ts — `addElement()` / `updateElement()` transact text elements same as any other type via `Y.Map<CanvasElement>` | ✅ Done |
+| **2.3.4 Auto-Resize Text Container** | apps/web/lib/element-utils.ts — `createText()` estimates dimensions from `fontSize * lineCount * charWidth`; apps/web/components/Canvas.tsx — textarea resizes on input | ✅ Done |
+
+### 2.4 Stroke Customization
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.4.1 Stroke Attributes** | packages/common/src/canvas.types.ts — `ExcalidrawElementBase` has `strokeColor`, `strokeWidth`, `strokeStyle` (`StrokeStyle = "solid" \| "dashed" \| "dotted"`) | ✅ Done |
+| **2.4.2 Properties Panel** | apps/web/components/canvas/PropertiesPanel.tsx — Stroke color (8 presets), width (1/2/4/6px), line style (solid/dashed/dotted with SVG previews), opacity slider | ✅ Done |
+| **2.4.3 Default Properties Memory** | apps/web/store/canvas-store.ts — `currentStrokeColor`, `currentStrokeWidth`, `currentStrokeStyle`, `currentOpacity` persisted in store, applied to new elements | ✅ Done |
+| **2.4.4 Hit Testing for Thin Lines** | apps/web/lib/element-utils.ts — `hitTestLine()`, `hitTestArrow()` with `hitThreshold` (7px min); apps/web/components/Canvas.tsx — `hitStrokeWidth={Math.max(element.strokeWidth, 10)}` | ✅ Done |
+
+### 2.5 Brush Styles
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.5.1 Rough.js Integration** | packages/common/src/canvas.types.ts — `roughness` and `seed` fields defined on elements | ⚠️ Schema only (no rough.js rendering) |
+| **2.5.2 Style Toggle** | Not implemented — no UI toggle for rough/clean styles | ❌ Missing |
+| **2.5.3 Custom Konva Shape** | Not implemented — no rough.js Konva renderer | ❌ Missing |
+
+### 2.6 Fill Tool
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.6.1 Fill Schema** | packages/common/src/canvas.types.ts — `backgroundColor`, `fillStyle` (`FillStyle = "solid" \| "hachure" \| "cross-hatch" \| "dots"`) | ✅ Done |
+| **2.6.2 Color Picker Integration** | apps/web/components/canvas/PropertiesPanel.tsx — Fill/Background section with 8 color presets + transparent | ✅ Done |
+| **2.6.3 Opacity Support** | apps/web/components/canvas/PropertiesPanel.tsx — Opacity slider (10–100%); apps/web/components/Canvas.tsx — `opacity: element.opacity / 100` in `commonProps` | ✅ Done |
+
+### 2.7 Live Ghost Stroke Previews
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.7.1 Provisional Layer** | apps/web/components/Canvas.tsx — `drawingElement` local state, rendered with `isPreview=true` (dashed outline) alongside committed elements in same `<Layer>` | ✅ Done |
+| **2.7.2 Lag-Free Visual Feedback** | apps/web/components/Canvas.tsx — `handleMouseMove` updates `drawingElement` on every move event; `renderElement(..., true)` gives dashed preview style | ✅ Done |
+| **2.7.3 Commit on Mouse Release** | apps/web/components/Canvas.tsx — `handleMouseUp`: finalizes `drawingElement`, normalizes dimensions, assigns zIndex, calls `addElement()`, clears drawing state | ✅ Done |
+
+### 2.8 Multi-Object Selection & Manipulation
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **2.8.1 Selection Bounding Box** | apps/web/lib/element-utils.ts — `getElementBounds()`, `getSelectionBounds()`, `getElementsInSelectionBox()` (bounds intersection) | ✅ Done |
+| **2.8.2 Custom Transformer** | apps/web/components/canvas/ResizeHandles.tsx — 8-handle resize UI; apps/web/components/canvas/RotationControls.tsx — rotation handle + 90° snap | ✅ Done |
+| **2.8.3 Bulk Move** | apps/web/components/Canvas.tsx — `handleElementDragEnd` updates position; `draggable={isDraggable}` on all elements when selection tool is active | ✅ Done |
+| **2.8.4 Bulk Delete** | apps/web/components/Canvas.tsx — keyboard `Delete`/`Backspace` → `deleteElements(Array.from(selectedElementIds))`; apps/web/hooks/useYjsSync.ts — `deleteElements()` soft-deletes all IDs in one Y.Doc transaction | ✅ Done |
+
+---
+
+## 3 — Real-Time Team Collaboration & Presence
+
+| Story | File(s) | Status |
+|-------|---------|--------|
+| **3.1 Live Presence & Remote Cursors** | apps/web/hooks/useYjsSync.ts — awareness observer maps remote states to `Collaborator` objects; `updateCursor()` broadcasts local cursor; apps/web/components/canvas/CollaboratorCursors.tsx — SVG arrow cursors with name labels; apps/web/components/canvas/ConnectionStatus.tsx — collaborator count + mini avatars | ✅ Done |
+| **3.2 Secure Workspace Invitation Links** | apps/web/components/canvas/Header.tsx — `ShareSection` generates shareable link from `window.location`, copy-to-clipboard; apps/ws-backend/src/index.ts — `onAuthenticate` validates JWT for room access | ✅ Done (link sharing, not invite system) |
+| **3.3 Collaborative Laser Pointer** | apps/web/components/Canvas.tsx — laser tool (`"laser"`) with `laserPointsRef`, renders temporary Konva `<Path>`, clears on mouse up; apps/web/components/canvas/Toolbar.tsx — laser tool button (K) | ✅ Done (local only, not broadcast to other users) |
+| **3.4 User Mentions & Notifications** | Not implemented | ❌ Missing |
+| **3.5 Follow the Leader (Viewport Sync)** | Not implemented | ❌ Missing |
+| **3.6 Granular Object Locking** | packages/common/src/canvas.types.ts — `locked` field on `ExcalidrawElementBase`; apps/web/store/canvas-store.ts — canvas-wide `isReadOnly` mode | ⚠️ Partial (global lock only, not per-object) |
+| **3.7 Room Chat Sidebar** | Not implemented | ❌ Missing |
+| **3.8 RBAC Dashboard** | Not implemented — no roles/permissions system | ❌ Missing |
+
+---
+
+## 4 — Session History and Version Control
+
+### 4.1 Auto-Save and State Persistence
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.1.1 WebSocket Webhooks for Persistence** | apps/ws-backend/src/index.ts — Hocuspocus `onStoreDocument` hook, triggered by server's debounce config | ✅ Done |
+| **4.1.2 Debounced Database Save Logic** | apps/ws-backend/src/index.ts — `debounce: 3000`, `maxDebounce: 10000`; Yjs state → hex `\x` encoding → upsert into `canvases.data` column | ✅ Done |
+| **4.1.3 Saving Status UI Indicator** | apps/web/components/canvas/Header.tsx — `SavingIndicator` component (Saving…/Saved/Error with Cloud icons); apps/web/store/canvas-store.ts — `savingStatus` state; apps/web/hooks/useYjsSync.ts — sets saving→saved with 4s timeout | ✅ Done |
+| **[Backend] Debounced Save** | apps/ws-backend/src/index.ts — same as 4.1.2 | ✅ Done |
+
+### 4.2 Session Viewport Recovery
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.2.1 Persist User Viewport** | apps/web/hooks/useViewportPersistence.ts — saves `scrollX/scrollY/zoom` to localStorage keyed by `lekhaflow-viewport-{roomId}`, 500ms debounce via Zustand `subscribeWithSelector` | ✅ Done |
+| **4.2.2 Hydrate Camera on Init** | apps/web/hooks/useViewportPersistence.ts — reads from localStorage on mount, calls `setScroll()` + `setZoom()`, guards against hydration-triggered saves via `isHydrated` ref | ✅ Done |
+
+### 4.3 Real-Time Local Undo/Redo
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.3.1 Initialize Shared Undo Manager** | apps/web/hooks/useYjsSync.ts — `new Y.UndoManager(yElements, { captureTimeout: 500 })`, tracks `canUndo`/`canRedo` via stack events | ✅ Done |
+| **4.3.2 Connect Undo/Redo UI and Hotkeys** | apps/web/components/canvas/ZoomControls.tsx — Undo/Redo buttons with disabled state; apps/web/components/Canvas.tsx — `Ctrl+Z` / `Ctrl+Y` hotkeys | ✅ Done |
+
+### 4.4 Text-Based Activity Log
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.4.1 Action Interceptor Logic** | apps/ws-backend/src/index.ts — `onAuthenticate` logs "accessed" action to `activity_logs` table (with 1-hour dedup) | ⚠️ Partial (only logs "accessed", not drawing actions) |
+| **4.4.2 Toast Notification System** | Not implemented — no toast/notification system | ❌ Missing |
+
+### 4.5 Named Version Checkpoints
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.5.1 Create Versions Database Table** | packages/supabase/src/types.ts — `canvas_versions` table (id, canvas_id, creator_id, name, snapshot, created_at) | ✅ Done (schema only) |
+| **4.5.2 Create Manual Snapshot API** | Not implemented — no version API endpoint in apps/http-backend/src/routes/ | ❌ Missing |
+| **4.5.3 Build Version History Sidebar UI** | Not implemented | ❌ Missing |
+
+### 4.6 Read-Only Mode (Lock Canvas)
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.6.1 Read-Only State Management** | apps/web/store/canvas-store.ts — `isReadOnly` state, `setReadOnly()` action (forces hand tool, clears selection, persists to localStorage); Tests: apps/web/test/read-only-mode.test.ts | ✅ Done |
+| **4.6.2 Enforce Read-Only in UI** | apps/web/components/canvas/Toolbar.tsx — disables all tools except Hand when locked; apps/web/components/Canvas.tsx — blocks context menu, keyboard shortcuts, mouse handlers in read-only; apps/web/components/canvas/PropertiesPanel.tsx — "Locked" badge | ✅ Done |
+
+### 4.7 Object Blame / Attribution Inspection
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.7.1 Update Data Model for Attribution** | packages/common/src/canvas.types.ts — `version`, `versionNonce`, `updated`, `created` fields on every element | ⚠️ Partial (no `createdBy` field) |
+| **4.7.2 Attribution Tracking Logic** | Not implemented | ❌ Missing |
+| **4.7.3 Attribution Tooltip UI** | Not implemented | ❌ Missing |
+
+### 4.8 Restore to Previous Version
+
+| Task | File(s) | Status |
+|------|---------|--------|
+| **4.8.1 Version Restore API** | Not implemented — `canvas_versions` table exists but no service/endpoint | ❌ Missing |
+| **4.8.2 Client Re-sync on Restore** | Not implemented | ❌ Missing |
+
+---
+
+## 5 — Workspace Organization
+
+| Story | File(s) | Status |
+|-------|---------|--------|
+| **5.1 Folder-Based Project Structure** | packages/supabase/src/types.ts — `folders` table (id, name, owner_id, parent_id self-referential), `canvases.folder_id` FK | ⚠️ Schema only (no UI/endpoints) |
+| **5.2 Visual Thumbnails** | See 1.5 above — apps/web/components/Canvas.tsx (capture), apps/web/components/Dashboard.tsx (display) | ✅ Done |
+| **5.3 Global Search and Filtering** | Not implemented | ❌ Missing |
+| **5.4 Soft Delete and Trash Recovery** | apps/http-backend/src/services/canvas.ts — `deleteCanvasService()` soft-deletes. Recovery/undelete endpoint NOT implemented | ⚠️ Partial (delete only, no recovery) |
+| **5.5 "Recently Viewed" Quick Access** | apps/ws-backend/src/index.ts — logs "accessed" action to `activity_logs`; apps/http-backend/src/services/canvas.ts — queries activity_logs for shared canvases. No dedicated "recent" UI | ⚠️ Partial (data tracked, no UI) |
+| **5.6 Custom Tagging System** | packages/supabase/src/types.ts — `tags` table + `tags_on_canvases` junction table | ⚠️ Schema only (no UI/endpoints) |
+| **5.7 Grid vs List View Toggle** | apps/web/components/Dashboard.tsx — `viewMode` state with grid/list toggle buttons, conditional layout classes | ✅ Done |
+| **5.8 "Starred" or Favorites** | Not implemented — no schema or UI | ❌ Missing |
+
+---
+
+## 6 — Smart Features and Assistance
+
+| Story | File(s) | Status |
+|-------|---------|--------|
+| **6.1 Contextual Diagram Explanation (Q&A)** | Not implemented | ❌ Missing |
+| **6.2 AI-Driven Modification** | Not implemented | ❌ Missing |
+| **6.3 Smart Sketch Beautification** | Not implemented | ❌ Missing |
+| **6.4 Auto-Generation of Documentation** | Not implemented | ❌ Missing |
+| **6.5 Diagram Intent Classification** | Not implemented | ❌ Missing |
+| **6.6 Stroke Smoothing Assistance** | apps/web/lib/stroke-utils.ts — `simplifyPath()` (RDP algorithm), perfect-freehand pressure simulation. No AI/curve-fitting layer | ⚠️ Partial (algorithmic only) |
+| **6.7 Natural Language Canvas Search** | Not implemented | ❌ Missing |
+| **6.8 "Explain Like I'm New" Mode** | Not implemented | ❌ Missing |
+
+---
+
+## Additional: Schema Update
+
+The central schema is defined in packages/supabase/src/types.ts (auto-generated from Supabase). It includes **7 tables**:
+
+| Table | File Location | Used By |
+|-------|--------------|---------|
+| `users` | types.ts | Auth controller, WS backend |
+| `canvases` | types.ts | Canvas service, WS backend |
+| `folders` | types.ts | ⚠️ Schema only |
+| `activity_logs` | types.ts | WS backend (write), canvas service (read) |
+| `canvas_versions` | types.ts | ⚠️ Schema only |
+| `tags` | types.ts | ⚠️ Schema only |
+| `tags_on_canvases` | types.ts | ⚠️ Schema only |
+
+Zod validation schemas in packages/common/src/types.ts: `SignUpSchema`, `SignInSchema`, `CreateCanvasSchema`, `UpdateCanvasSchema`.
+
+Element types in packages/common/src/canvas.types.ts: `CanvasElement` union of 7 element types with full property definitions.
+
+---
+
+## Summary Stats
+
+| Category | Total Tasks | ✅ Done | ⚠️ Partial | ❌ Missing |
+|----------|------------|---------|------------|------------|
+| 1. Canvas Management | 33 | 24 | 5 | 4 |
+| 2. Drawing Tools | 28 | 24 | 1 | 3 |
+| 3. Collaboration | 8 | 2 | 2 | 4 |
+| 4. History & Versioning | 16 | 9 | 2 | 5 |
+| 5. Workspace Organization | 8 | 2 | 4 | 2 |
+| 6. Smart Features | 8 | 0 | 1 | 7 |
+| **Totals** | **101** | **61** | **15** | **25** |

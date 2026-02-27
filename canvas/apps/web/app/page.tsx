@@ -24,11 +24,17 @@ export default function Home() {
 	// Listen for auth state
 	useEffect(() => {
 		const getSession = async () => {
-			const {
-				data: { session },
-			} = await supabase.auth.getSession();
-			setUser(session?.user ?? null);
-			setAuthLoading(false);
+			try {
+				const {
+					data: { session },
+				} = await supabase.auth.getSession();
+				setUser(session?.user ?? null);
+			} catch (err) {
+				console.warn("Failed to fetch session (network may be down):", err);
+				setUser(null);
+			} finally {
+				setAuthLoading(false);
+			}
 		};
 		getSession();
 
@@ -71,11 +77,14 @@ export default function Home() {
 				body: JSON.stringify({ name: "Untitled Canvas" }),
 			});
 
+			const data = await res.json();
 			if (res.ok) {
-				const data = await res.json();
 				router.push(`/canvas/${data.data.roomId}`);
 			} else {
-				console.error("Failed to create canvas");
+				console.error(
+					"Failed to create canvas:",
+					data?.message ?? res.statusText,
+				);
 			}
 		} catch (e) {
 			console.error("Error creating canvas:", e);
