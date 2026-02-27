@@ -30,7 +30,7 @@ export const saveVersion = async (req: Request, res: Response) => {
 
 	const { name, snapshot } = parsed.data;
 	const version = await saveVersionService({
-		canvasId: roomId,
+		canvasId: roomId as string,
 		name,
 		snapshot,
 		userId: req.user.id,
@@ -51,7 +51,7 @@ export const getVersions = async (req: Request, res: Response) => {
 		throw new HttpError("Canvas ID is required", StatusCodes.BAD_REQUEST);
 	}
 
-	const versions = await getVersionsService(roomId);
+	const versions = await getVersionsService(roomId as string);
 
 	return JSONResponse(res, StatusCodes.OK, "Versions retrieved successfully", {
 		versions,
@@ -68,7 +68,7 @@ export const getVersion = async (req: Request, res: Response) => {
 		throw new HttpError("Version ID is required", StatusCodes.BAD_REQUEST);
 	}
 
-	const version = await getVersionService(versionId);
+	const version = await getVersionService(versionId as string);
 	if (!version) {
 		throw new HttpError("Version not found", StatusCodes.NOT_FOUND);
 	}
@@ -88,7 +88,7 @@ export const deleteVersion = async (req: Request, res: Response) => {
 		throw new HttpError("Version ID is required", StatusCodes.BAD_REQUEST);
 	}
 
-	await deleteVersionService(versionId, req.user.id);
+	await deleteVersionService(versionId as string, req.user.id);
 
 	return JSONResponse(res, StatusCodes.OK, "Version deleted successfully");
 };
