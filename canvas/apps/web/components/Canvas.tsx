@@ -87,18 +87,19 @@ import {
 	useCollaboratorsArray,
 	useElementsArray,
 } from "../store/canvas-store";
+import { ActivitySidebar } from "./canvas/ActivitySidebar";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import { HeaderLeft, HeaderRight } from "./canvas/Header";
-
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RotationControls } from "./canvas/RotationControls";
 // Import components directly to avoid circular dependencies through barrel exports
 import { Toolbar } from "./canvas/Toolbar";
+import { VersionsPanel } from "./canvas/VersionsPanel";
 import { ZoomControls } from "./canvas/ZoomControls";
 
 // ============================================================================
@@ -621,6 +622,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		x: number;
 		y: number;
 		visible: boolean;
+		metadata?: { createdBy?: string; lastModifiedBy?: string };
 	}>({
 		x: 0,
 		y: 0,
@@ -1051,13 +1053,29 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			e.preventDefault();
 			// Block context menu in read-only mode
 			if (isReadOnly) return;
+
+			let metadata: { createdBy?: string; lastModifiedBy?: string } | undefined;
+
+			// Extract metadata if exactly one element is selected
+			if (selectedElementIds.size === 1) {
+				const selectedId = Array.from(selectedElementIds)[0];
+				const element = elements.find((el) => el.id === selectedId);
+				if (element && (element.createdBy || element.lastModifiedBy)) {
+					metadata = {
+						createdBy: element.createdBy,
+						lastModifiedBy: element.lastModifiedBy,
+					};
+				}
+			}
+
 			setContextMenu({
 				x: e.clientX,
 				y: e.clientY,
 				visible: true,
+				metadata,
 			});
 		},
-		[isReadOnly],
+		[isReadOnly, selectedElementIds, elements],
 	);
 
 	/**
@@ -2199,6 +2217,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				x={contextMenu.x}
 				y={contextMenu.y}
 				isVisible={contextMenu.visible}
+				metadata={contextMenu.metadata}
 				hasSelection={selectedElementIds.size > 0}
 				onClose={closeContextMenu}
 				onCopy={handleCopy}
@@ -2274,6 +2293,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				stageRef={stageRef}
 				initialFormat={exportFormat}
 			/>
+
+			{/* Activity Log Sidebar */}
+			<ActivitySidebar />
+
+			{/* Named Versions Sidebar */}
+			<VersionsPanel token={token} />
 		</div>
 	);
 }
