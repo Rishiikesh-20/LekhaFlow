@@ -24,6 +24,7 @@ interface ContextMenuProps {
 	x: number;
 	y: number;
 	isVisible: boolean;
+	metadata?: { createdBy?: string; lastModifiedBy?: string };
 	hasSelection: boolean;
 	onClose: () => void;
 	onCopy: () => void;
@@ -84,6 +85,7 @@ export function ContextMenu({
 	x,
 	y,
 	isVisible,
+	metadata,
 	hasSelection,
 	onClose,
 	onCopy,
@@ -198,6 +200,41 @@ export function ContextMenu({
 					disabled={!hasSelection}
 					danger
 				/>
+
+				{/* Metadata Section */}
+				{metadata && (metadata.createdBy || metadata.lastModifiedBy) && (
+					<>
+						<div className="h-px bg-gray-200 my-1.5" />
+						<div className="px-3 pb-1 pt-1.5">
+							<div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+								Element Info
+							</div>
+							{metadata.createdBy && (
+								<div className="text-[11px] text-gray-600 flex justify-between">
+									<span className="text-gray-400">Created by:</span>
+									<span
+										className="font-medium truncate max-w-[100px]"
+										title={metadata.createdBy}
+									>
+										{metadata.createdBy}
+									</span>
+								</div>
+							)}
+							{metadata.lastModifiedBy &&
+								metadata.lastModifiedBy !== metadata.createdBy && (
+									<div className="text-[11px] text-gray-600 flex justify-between mt-0.5">
+										<span className="text-gray-400">Modified by:</span>
+										<span
+											className="font-medium truncate max-w-[100px]"
+											title={metadata.lastModifiedBy}
+										>
+											{metadata.lastModifiedBy}
+										</span>
+									</div>
+								)}
+						</div>
+					</>
+				)}
 			</div>
 		</>
 	);
