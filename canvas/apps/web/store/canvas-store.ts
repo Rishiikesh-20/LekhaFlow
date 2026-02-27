@@ -66,6 +66,18 @@ interface HistoryEntry {
 }
 
 /**
+ * Activity log entry for the sidebar
+ */
+export interface ActivityLogEntry {
+	id: string;
+	timestamp: number;
+	userName: string;
+	userColor: string;
+	action: "added" | "updated" | "deleted";
+	elementType: string;
+}
+
+/**
  * Saving status for auto-save indicator
  */
 export type SavingStatus = "idle" | "saving" | "saved" | "error";
@@ -196,6 +208,16 @@ interface CanvasState {
 
 	/** My user color */
 	myColor: string;
+
+	// ─────────────────────────────────────────────────────────────────
+	// ACTIVITY LOG STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Recent activity log entries (max 50, most-recent first) */
+	activityLog: ActivityLogEntry[];
+
+	/** Whether the activity sidebar is open */
+	isActivitySidebarOpen: boolean;
 }
 
 /**
@@ -343,6 +365,19 @@ interface CanvasActions {
 
 	/** Toggle read-only (lock) mode */
 	setReadOnly: (isReadOnly: boolean) => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// ACTIVITY LOG ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Add an activity log entry (prepends, caps at 50) */
+	addActivityLogEntry: (entry: ActivityLogEntry) => void;
+
+	/** Toggle the activity sidebar */
+	setActivitySidebarOpen: (open: boolean) => void;
+
+	/** Clear the activity log */
+	clearActivityLog: () => void;
 }
 
 // ============================================================================
@@ -414,6 +449,10 @@ export const initialState: CanvasState = {
 	// Identity - set by CanvasAuthWrapper from actual user data
 	myName: "User",
 	myColor: getRandomColor(),
+
+	// Activity log
+	activityLog: [],
+	isActivitySidebarOpen: false,
 };
 
 /**
@@ -662,6 +701,19 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 					: { activeTool: state.activeTool }),
 			}));
 		},
+
+		// ─────────────────────────────────────────────────────────────────
+		// ACTIVITY LOG ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		addActivityLogEntry: (entry) =>
+			set((state) => ({
+				activityLog: [entry, ...state.activityLog].slice(0, 50),
+			})),
+
+		setActivitySidebarOpen: (open) => set({ isActivitySidebarOpen: open }),
+
+		clearActivityLog: () => set({ activityLog: [] }),
 	})),
 );
 
