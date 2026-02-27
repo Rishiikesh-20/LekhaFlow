@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Eye, Plus, Tag, Trash2, X } from "lucide-react";
+import { Clock, Eye, Plus, RotateCcw, Tag, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase.client";
 import { useCanvasStore } from "../../store/canvas-store";
@@ -330,9 +330,10 @@ function VersionPreviewModal({ version, onClose }: PreviewModalProps) {
 
 interface VersionsPanelProps {
 	token: string | null | undefined;
+	onRestore?: (snapshot: Record<string, unknown>) => void;
 }
 
-export function VersionsPanel({ token }: VersionsPanelProps) {
+export function VersionsPanel({ token, onRestore }: VersionsPanelProps) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [versions, setVersions] = useState<CanvasVersion[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -341,6 +342,10 @@ export function VersionsPanel({ token }: VersionsPanelProps) {
 	const [previewVersion, setPreviewVersion] = useState<CanvasVersion | null>(
 		null,
 	);
+	const [restoreTarget, setRestoreTarget] = useState<CanvasVersion | null>(
+		null,
+	);
+	const [restoring, setRestoring] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
 	const roomId = useCanvasStore((s) => s.roomId);
@@ -441,6 +446,23 @@ export function VersionsPanel({ token }: VersionsPanelProps) {
 			}
 		} catch {
 			setError("Network error while deleting");
+		}
+	};
+
+	// ── Restore canvas to a saved version ──
+	const handleRestore = async (version: CanvasVersion) => {
+		if (!onRestore) return;
+		setRestoring(true);
+		setError(null);
+		try {
+			const snapshot = JSON.parse(version.snapshot) as Record<string, unknown>;
+			onRestore(snapshot);
+			setRestoreTarget(null);
+			setIsOpen(false);
+		} catch {
+			setError("Failed to parse version snapshot");
+		} finally {
+			setRestoring(false);
 		}
 	};
 
@@ -603,6 +625,17 @@ export function VersionsPanel({ token }: VersionsPanelProps) {
 
 									{/* Actions — show on hover */}
 									<div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+										{onRestore && (
+											<button
+												type="button"
+												onClick={() => setRestoreTarget(version)}
+												title="Restore this version"
+												className="p-1 rounded-lg bg-transparent border-none cursor-pointer hover:bg-amber-50 transition-colors"
+												style={{ color: "#d97706" }}
+											>
+												<RotateCcw size={13} />
+											</button>
+										)}
 										<button
 											type="button"
 											onClick={() => setPreviewVersion(version)}
@@ -643,6 +676,93 @@ export function VersionsPanel({ token }: VersionsPanelProps) {
 					version={previewVersion}
 					onClose={() => setPreviewVersion(null)}
 				/>
+			)}
+
+			{/* Restore Confirmation Modal */}
+			{restoreTarget && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center"
+					style={{
+						background: "rgba(0,0,0,0.5)",
+						backdropFilter: "blur(4px)",
+					}}
+				>
+					<div
+						className="w-[400px] rounded-2xl p-6"
+						style={{
+							background: "#fff",
+							boxShadow: "0 24px 64px rgba(0,0,0,0.2)",
+						}}
+					>
+						{/* Header */}
+						<div className="flex items-center gap-3 mb-4">
+							<div
+								className="w-10 h-10 rounded-xl flex items-center justify-center"
+								style={{
+									background: "rgba(217,119,6,0.1)",
+								}}
+							>
+								<RotateCcw size={18} style={{ color: "#d97706" }} />
+							</div>
+							<div>
+								<h3 className="text-sm font-bold text-gray-800 m-0">
+									Restore Version
+								</h3>
+								<p className="text-[11px] text-gray-400 m-0">
+									This action cannot be undone
+								</p>
+							</div>
+						</div>
+
+						{/* Warning message */}
+						<div
+							className="p-3 rounded-xl mb-5 text-[13px] text-amber-800"
+							style={{ background: "rgba(217,119,6,0.08)" }}
+						>
+							<p className="m-0 mb-1 font-semibold">
+								Restore &ldquo;{restoreTarget.name}&rdquo;?
+							</p>
+							<p className="m-0 text-[12px] text-amber-700">
+								All current canvas elements will be replaced with the elements
+								from this saved version. All connected users will see the change
+								immediately.
+							</p>
+						</div>
+
+						{/* Actions */}
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => setRestoreTarget(null)}
+								disabled={restoring}
+								className="flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-all border"
+								style={{
+									background: "transparent",
+									color: "#6b7280",
+									borderColor: "#e5e7eb",
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={() => void handleRestore(restoreTarget)}
+								disabled={restoring}
+								className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer transition-all border-none"
+								style={{
+									background: restoring
+										? "#fbbf24"
+										: "linear-gradient(135deg, #d97706 0%, #b45309 100%)",
+									boxShadow: restoring
+										? "none"
+										: "0 4px 12px rgba(217,119,6,0.3)",
+								}}
+							>
+								{restoring ? "Restoring…" : "Restore"}
+							</button>
+						</div>
+					</div>
+				</div>
 			)}
 		</>
 	);

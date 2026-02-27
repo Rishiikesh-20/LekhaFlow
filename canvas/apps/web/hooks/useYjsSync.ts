@@ -56,6 +56,7 @@ interface UseYjsSyncReturn {
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
 	getYElements: () => Y.Map<CanvasElement>;
+	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
 	undo: () => void;
 	redo: () => void;
 	canUndo: boolean;
@@ -450,6 +451,40 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
 	}, []);
 
+	/**
+	 * Restore canvas to a saved version snapshot.
+	 * Performs a "hard reset": deletes all current elements and recreates
+	 * from the snapshot in a single Yjs transaction.
+	 * This automatically propagates to all connected clients.
+	 */
+	const restoreVersion = useCallback(
+		(snapshot: Record<string, CanvasElement>) => {
+			const yElements = getYElements();
+
+			doc.transact(() => {
+				// Phase 1: Delete all existing elements
+				const existingKeys = Array.from(yElements.keys());
+				for (const key of existingKeys) {
+					yElements.delete(key);
+				}
+
+				// Phase 2: Recreate all elements from snapshot
+				for (const [id, element] of Object.entries(snapshot)) {
+					if (!element.isDeleted) {
+						yElements.set(id, element);
+					}
+				}
+			});
+
+			console.log(
+				"[Yjs] Version restored:",
+				Object.keys(snapshot).length,
+				"elements",
+			);
+		},
+		[doc, getYElements],
+	);
+
 	const undo = useCallback(() => {
 		undoManagerRef.current?.undo();
 	}, []);
@@ -471,6 +506,7 @@ export function useYjsSync(
 		updateCursor,
 		updateSelection,
 		getYElements,
+		restoreVersion,
 		undo,
 		redo,
 		canUndo,
