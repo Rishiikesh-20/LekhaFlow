@@ -88,6 +88,7 @@ import {
 	useElementsArray,
 } from "../store/canvas-store";
 import { ActivitySidebar } from "./canvas/ActivitySidebar";
+import { AttributionTooltip } from "./canvas/AttributionTooltip";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
@@ -519,6 +520,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		deleteElements,
 		updateCursor,
 		updateSelection,
+		restoreVersion,
 		undo,
 		redo,
 		canUndo,
@@ -616,6 +618,15 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Clipboard for copy/paste
 	const [clipboard, setClipboard] = useState<CanvasElement[]>([]);
+
+	// Attribution tooltip state (hover inspection – Story 7)
+	const [hoveredElement, setHoveredElement] = useState<CanvasElement | null>(
+		null,
+	);
+	const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({
+		x: 0,
+		y: 0,
+	});
 
 	// Context menu state
 	const [contextMenu, setContextMenu] = useState<{
@@ -1540,6 +1551,23 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				updateCursor({ x: pos.x, y: pos.y });
 			}
 
+			// Attribution tooltip – detect hovered element (only when idle)
+			if (
+				activeTool === "selection" &&
+				!isDrawing &&
+				!isDragging &&
+				!resizingElement &&
+				!rotatingElement
+			) {
+				const el = getElementAtPoint(point, elements);
+				setHoveredElement(el ?? null);
+				if (pos) {
+					setTooltipPos({ x: e.evt.clientX, y: e.evt.clientY });
+				}
+			} else {
+				setHoveredElement(null);
+			}
+
 			// Handle hand tool panning
 			if (isDragging && activeTool === "hand" && interactionStartPoint) {
 				const dx = point.x - interactionStartPoint.x;
@@ -1674,6 +1702,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			elements,
 			deleteElements,
 			currentStrokeWidth,
+			resizingElement,
+			rotatingElement,
 		],
 	);
 
@@ -2046,6 +2076,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleMouseLeave = useCallback(() => {
 		updateCursor(null);
+		setHoveredElement(null);
 	}, [updateCursor]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -2212,6 +2243,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				shortcuts
 			</div>
 
+			{/* Attribution Tooltip (hover inspection – Story 7) */}
+			<AttributionTooltip
+				element={hoveredElement}
+				x={tooltipPos.x}
+				y={tooltipPos.y}
+			/>
+
 			{/* Context Menu */}
 			<ContextMenu
 				x={contextMenu.x}
@@ -2298,7 +2336,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			<ActivitySidebar />
 
 			{/* Named Versions Sidebar */}
-			<VersionsPanel token={token} />
+			<VersionsPanel
+				token={token}
+				onRestore={(snapshot) =>
+					restoreVersion(
+						snapshot as Record<string, import("@repo/common").CanvasElement>,
+					)
+				}
+			/>
 		</div>
 	);
 }
