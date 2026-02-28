@@ -15,7 +15,7 @@
  *  3. Build left/right outlines and close the path.
  */
 
-import type { Brush, BrushOptions, BrushPoint } from "./types";
+import type { Brush, BrushOptions, BrushPoint, RenderLayer } from "./types";
 
 // ============================================================================
 // HELPERS
@@ -159,5 +159,31 @@ export const MarkerBrush: Brush = {
 		const { left, right } = buildChiselOutline(smoothed, size);
 
 		return outlineToSvgPath(left, right);
+	},
+
+	getLayers(
+		points: ReadonlyArray<BrushPoint>,
+		options: BrushOptions = {},
+	): RenderLayer[] {
+		const size = options.size ?? MARKER_DEFAULTS.size;
+
+		if (points.length === 0) return [];
+
+		const streamlineFactor = options.streamline ?? MARKER_DEFAULTS.streamline;
+		const smoothed = streamline(points, streamlineFactor);
+
+		// Layer 1: solid bold stroke (the hard-edged felt-tip body)
+		const { left: mL, right: mR } = buildChiselOutline(smoothed, size);
+		const mainPath = outlineToSvgPath(mL, mR);
+
+		// Layer 2: very slightly wider bleed halo — simulates ink bleed on paper
+		const { left: hL, right: hR } = buildChiselOutline(smoothed, size * 1.3);
+		const haloPath = outlineToSvgPath(hL, hR);
+
+		return [
+			// Halo rendered BELOW the main stroke
+			{ path: haloPath, opacity: 0.08, shadowBlur: 3, noHit: true },
+			{ path: mainPath, opacity: 1.0 },
+		];
 	},
 };

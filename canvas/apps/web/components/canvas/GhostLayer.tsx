@@ -28,7 +28,13 @@ import {
 	Text,
 } from "react-konva";
 import type { RemoteGhost } from "../../hooks/useGhostPreviews";
-import { type BrushPoint, getBrush, getCachedPath } from "../../lib/brushes";
+import {
+	type BrushPoint,
+	getBrush,
+	getCachedLayers,
+	getCachedPath,
+	normalizeBrushType,
+} from "../../lib/brushes";
 import { outlineToSvgPath } from "../../lib/stroke-utils";
 
 // ============================================================================
@@ -72,9 +78,15 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 	const ghostStroke = preview.clientColor || strokeColor || "#888888";
 	const ghostFill = fillColor ? `${fillColor}40` : "transparent"; // 25% alpha fill
 
-	// Common props for all ghost shapes — ensures no interaction
+	// Effective ghost opacity = element's own opacity × ghost factor
+	// e.g. a 50%-opacity stroke ghosted at 35% → 17.5% total opacity
+	const elementOpacity = (preview.opacity ?? 100) / 100;
+	const ghostAlpha = elementOpacity * GHOST_OPACITY;
+
+	// Common props for shape ghosts (rect / ellipse / diamond / line / arrow)
+	// freedraw paths are NOT given these props — they handle opacity individually
 	const commonProps = {
-		opacity: GHOST_OPACITY,
+		opacity: ghostAlpha,
 		dash: GHOST_DASH,
 		listening: false,
 		perfectDrawEnabled: false,
@@ -226,52 +238,102 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 			}
 
 			// Use brush engine with path caching for performance
-			const brushType = preview.brushType ?? "round";
+			const brushType = normalizeBrushType(preview.brushType);
 			const brush = getBrush(brushType);
 
-			let pathData: string;
+			const labelNode = (
+				<Text
+					x={x + (pointPairs[0]?.[0] || 0)}
+					y={y + (pointPairs[0]?.[1] || 0) - 18}
+					text={labelText}
+					fontSize={11}
+					fill={ghostStroke}
+					opacity={0.6}
+					listening={false}
+				/>
+			);
+
 			if (brush) {
 				const brushPoints: BrushPoint[] = pointPairs.map(([bx, by]) => ({
 					x: bx,
 					y: by,
 					pressure: 0.5,
 				}));
-				// Use cached path — ghost previews are recomputed at ~60fps,
+				const brushOpts = {
+					size: strokeWidth * 2,
+					seedId: preview.seedId,
+				};
+				// Use cached layers — ghost previews are recomputed at ~60fps,
 				// caching avoids redundant path generation for identical point sets
-				pathData = getCachedPath(brush, brushPoints, {
-					size: strokeWidth * 2,
-				});
-			} else {
-				// Fallback to perfect-freehand for unknown brush types
-				pathData = outlineToSvgPath(pointPairs, {
-					size: strokeWidth * 2,
-					thinning: 0.5,
-					smoothing: 0.5,
-					streamline: 0.5,
-					simulatePressure: true,
-				});
+				const layers = getCachedLayers(brush, brushPoints, brushOpts);
+				if (!layers.length) return null;
+
+				if (layers.length > 1) {
+					// Multi-pass ghost: the inner Group composites all passes first,
+					// then ghostAlpha fades the whole result uniformly.
+					return (
+						<Group>
+							<Group x={x} y={y} opacity={ghostAlpha}>
+								{layers.map((layer, idx) => (
+									<Path
+										key={`layer-${idx}`}
+										data={layer.path}
+										fill={ghostStroke}
+										opacity={layer.opacity}
+										shadowBlur={layer.shadowBlur ?? 0}
+										shadowColor={ghostStroke}
+										shadowEnabled={!!layer.shadowBlur}
+										shadowOpacity={0.4}
+										listening={false}
+										perfectDrawEnabled={false}
+									/>
+								))}
+							</Group>
+							{labelNode}
+						</Group>
+					);
+				}
+
+				// Single-layer ghost (pencil, spray): straightforward tinted path
+				const pathData = getCachedPath(brush, brushPoints, brushOpts);
+				if (!pathData) return null;
+				return (
+					<Group>
+						<Path
+							x={x}
+							y={y}
+							data={pathData}
+							fill={ghostStroke}
+							opacity={ghostAlpha}
+							listening={false}
+							perfectDrawEnabled={false}
+						/>
+						{labelNode}
+					</Group>
+				);
 			}
 
+			// Fallback to perfect-freehand for unknown brush types
+			const pathData = outlineToSvgPath(pointPairs, {
+				size: strokeWidth * 2,
+				thinning: 0.5,
+				smoothing: 0.5,
+				streamline: 0.5,
+				simulatePressure: true,
+			});
 			if (!pathData) return null;
-
 			return (
 				<Group>
 					<Path
 						x={x}
 						y={y}
 						data={pathData}
-						fill={`${ghostStroke}59`} // 35% alpha
-						{...commonProps}
-					/>
-					<Text
-						x={x + (pointPairs[0]?.[0] || 0)}
-						y={y + (pointPairs[0]?.[1] || 0) - 18}
-						text={labelText}
-						fontSize={11}
 						fill={ghostStroke}
-						opacity={0.6}
+						opacity={ghostAlpha}
 						listening={false}
+						perfectDrawEnabled={false}
 					/>
+					{labelNode}
 				</Group>
 			);
 		}

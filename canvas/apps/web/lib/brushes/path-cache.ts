@@ -11,7 +11,7 @@
  * - No side-effects: does NOT touch Konva, Y.js, or any store
  */
 
-import type { Brush, BrushOptions, BrushPoint } from "./types";
+import type { Brush, BrushOptions, BrushPoint, RenderLayer } from "./types";
 
 // ============================================================================
 // CONSTANTS
@@ -35,6 +35,7 @@ function buildCacheKey(
 	brushType: string,
 	points: ReadonlyArray<BrushPoint>,
 	size: number,
+	seedId?: string,
 ): string {
 	// FNV-1a-inspired fast hash of point data
 	let hash = 2166136261; // FNV offset basis (32-bit)
@@ -48,8 +49,10 @@ function buildCacheKey(
 		hash ^= (((p.pressure ?? 0.5) * 1000) | 0) & 0xffffffff;
 		hash = Math.imul(hash, 16777619);
 	}
+	// Include seedId in cache key so different seeds don't collide
+	const seedSuffix = seedId ? `|${seedId}` : "";
 	// Convert to unsigned 32-bit hex
-	return `${brushType}|${size}|${points.length}|${(hash >>> 0).toString(16)}`;
+	return `${brushType}|${size}|${points.length}|${(hash >>> 0).toString(16)}${seedSuffix}`;
 }
 
 // ============================================================================
@@ -73,7 +76,7 @@ export function getCachedPath(
 	options?: BrushOptions,
 ): string {
 	const size = options?.size ?? 16;
-	const key = buildCacheKey(brush.type, points, size);
+	const key = buildCacheKey(brush.type, points, size, options?.seedId);
 
 	// Cache hit — move to end (most-recently-used)
 	const cached = pathCache.get(key);
@@ -112,4 +115,61 @@ export function clearPathCache(): void {
  */
 export function getPathCacheSize(): number {
 	return pathCache.size;
+}
+
+// ============================================================================
+// LAYER CACHE (multi-pass brushes)
+// ============================================================================
+
+/** Insertion-ordered map used as LRU cache for layer arrays */
+const layerCache = new Map<string, RenderLayer[]>();
+
+/**
+ * Get cached render layers or generate and cache new ones.
+ *
+ * Only valid for brushes that implement `getLayers()`. Falls back to
+ * a single-layer array wrapping `generatePath` for other brushes.
+ *
+ * @param brush   - The brush instance
+ * @param points  - Ordered stroke points
+ * @param options - Brush options (size + seedId affect cache key)
+ * @returns Array of RenderLayer, bottom-to-top order
+ */
+export function getCachedLayers(
+	brush: Brush,
+	points: ReadonlyArray<BrushPoint>,
+	options?: BrushOptions,
+): RenderLayer[] {
+	const size = options?.size ?? 16;
+	const key = buildCacheKey(brush.type, points, size, options?.seedId);
+	const layerKey = `L:${key}`;
+
+	// Cache hit
+	const cached = layerCache.get(layerKey);
+	if (cached !== undefined) {
+		layerCache.delete(layerKey);
+		layerCache.set(layerKey, cached);
+		return cached;
+	}
+
+	// Cache miss — generate layers
+	let layers: RenderLayer[];
+	if (brush.getLayers) {
+		layers = brush.getLayers(points, options);
+	} else {
+		// Single-layer fallback: use getCachedPath
+		const path = getCachedPath(brush, points, options);
+		layers = [{ path, opacity: 1 }];
+	}
+
+	// Evict oldest entry if at capacity
+	if (layerCache.size >= MAX_CACHE_SIZE) {
+		const oldestKey = layerCache.keys().next().value;
+		if (oldestKey !== undefined) {
+			layerCache.delete(oldestKey);
+		}
+	}
+
+	layerCache.set(layerKey, layers);
+	return layers;
 }

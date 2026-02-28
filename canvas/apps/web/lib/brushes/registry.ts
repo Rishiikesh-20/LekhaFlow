@@ -7,19 +7,23 @@
  * All built-in brushes are registered at module load time.
  */
 
-import { CalligraphyBrush } from "./calligraphy-brush";
+import { CrayonBrush } from "./crayon-brush";
 import { MarkerBrush } from "./marker-brush";
-import { RoundBrush } from "./round-brush";
+import { PencilBrush } from "./pencil-brush";
+import { SprayBrush } from "./spray-brush";
 import type { Brush, BrushType } from "./types";
+import { WatercolourBrush } from "./watercolour-brush";
 
 // ============================================================================
 // REGISTRY
 // ============================================================================
 
 const brushMap = new Map<string, Brush>([
-	[RoundBrush.type, RoundBrush],
+	[PencilBrush.type, PencilBrush],
+	[SprayBrush.type, SprayBrush],
+	[CrayonBrush.type, CrayonBrush],
 	[MarkerBrush.type, MarkerBrush],
-	[CalligraphyBrush.type, CalligraphyBrush],
+	[WatercolourBrush.type, WatercolourBrush],
 ]);
 
 /**

@@ -73,7 +73,13 @@ import type { GhostPreview } from "../hooks/useGhostPreviews";
 import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
-import { type BrushPoint, getBrush, getCachedPath } from "../lib/brushes";
+import {
+	type BrushPoint,
+	getBrush,
+	getCachedLayers,
+	getCachedPath,
+	normalizeBrushType,
+} from "../lib/brushes";
 import {
 	createArrow,
 	createFreedraw,
@@ -697,9 +703,8 @@ function renderElement(
 			}
 
 			// Solid style: use brush engine with path caching for performance
-			const brushType = freedrawElement.brushType ?? "round";
+			const brushType = normalizeBrushType(freedrawElement.brushType);
 			const brush = getBrush(brushType);
-			let pathData: string;
 
 			if (brush) {
 				// Convert points to BrushPoint format for the brush engine
@@ -710,20 +715,72 @@ function renderElement(
 						pressure: pressure ?? 0.5,
 					}),
 				);
-				// Use cached path to avoid redundant regeneration on re-renders
-				pathData = getCachedPath(brush, brushPoints, {
+				const brushOpts = {
 					size: element.strokeWidth * 2,
-				});
-			} else {
-				// Fallback to perfect-freehand for unknown brush types
-				pathData = outlineToSvgPath(points, {
-					size: element.strokeWidth * 2,
-					thinning: 0.5,
-					smoothing: 0.5,
-					streamline: 0.5,
-					simulatePressure: true,
-				});
+					seedId: freedrawElement.seedId,
+				};
+				const layers = getCachedLayers(brush, brushPoints, brushOpts);
+				if (layers.length > 1) {
+					// Multi-pass brush (crayon, marker, watercolour): render layered Group
+					return (
+						<Group
+							key={element.id}
+							id={element.id}
+							x={element.x}
+							y={element.y}
+							opacity={element.opacity / 100}
+							rotation={element.angle}
+							draggable={isDraggable}
+							{...selectionProps}
+							onDragEnd={(e: KonvaEventObject<DragEvent>) => {
+								onDragEnd(element.id, e.target.x(), e.target.y());
+							}}
+						>
+							{layers.map((layer, idx) => (
+								<Path
+									key={`layer-${idx}`}
+									data={layer.path}
+									fill={element.strokeColor}
+									opacity={layer.opacity}
+									shadowBlur={layer.shadowBlur ?? 0}
+									shadowColor={element.strokeColor}
+									shadowEnabled={!!layer.shadowBlur}
+									shadowOpacity={0.6}
+									listening={!layer.noHit}
+								/>
+							))}
+						</Group>
+					);
+				}
+				// Single-layer brush (pencil, spray): use direct cached path
+				const pathData = getCachedPath(brush, brushPoints, brushOpts);
+				return (
+					<Path
+						key={element.id}
+						id={element.id}
+						x={element.x}
+						y={element.y}
+						data={pathData}
+						fill={element.strokeColor}
+						opacity={element.opacity / 100}
+						rotation={element.angle}
+						draggable={isDraggable}
+						{...selectionProps}
+						onDragEnd={(e: KonvaEventObject<DragEvent>) => {
+							onDragEnd(element.id, e.target.x(), e.target.y());
+						}}
+					/>
+				);
 			}
+
+			// Fallback to perfect-freehand for unknown brush types
+			const pathData = outlineToSvgPath(points, {
+				size: element.strokeWidth * 2,
+				thinning: 0.5,
+				smoothing: 0.5,
+				streamline: 0.5,
+				simulatePressure: true,
+			});
 			return (
 				<Path
 					key={element.id}
@@ -955,6 +1012,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		isSynced,
 		isReadOnly,
 		setReadOnly,
+		setStrokeColor,
+		setStrokeWidth,
+		setOpacity,
+		setBrushType,
 	} = useCanvasStore();
 
 	// Elements and collaborators from store
@@ -1028,12 +1089,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				points: flatPoints,
 				strokeColor: (element.strokeColor as string) || currentStrokeColor,
 				strokeWidth: (element.strokeWidth as number) || currentStrokeWidth,
+				opacity: (element.opacity as number) ?? currentOpacity,
 				fillColor:
 					(element.backgroundColor as string) || currentBackgroundColor,
 				strokeStyle:
 					(element.strokeStyle as GhostPreview["strokeStyle"]) || "solid",
 				brushType:
 					(element.brushType as GhostPreview["brushType"]) || currentBrushType,
+				seedId: (element.seedId as string) || undefined,
 				clientName: "",
 				clientColor: "",
 			});
@@ -1042,6 +1105,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			broadcastGhost,
 			currentStrokeColor,
 			currentStrokeWidth,
+			currentOpacity,
 			currentBackgroundColor,
 			currentBrushType,
 		],
@@ -1298,6 +1362,53 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(id, { opacity: currentOpacity });
 		});
 	}, [currentOpacity, updateElement]);
+
+	// Mirror a Map of elements by id for cheap O(1) lookups in effects and callbacks
+	const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
+	useEffect(() => {
+		elementsMapRef.current = new Map(elements.map((e) => [e.id, e]));
+	}, [elements]);
+
+	// Sync selected freedraw element's appearance back to the panel tools so
+	// PropertiesPanel reflects the element's actual values on selection.
+	// Guards prevent unnecessary store writes that would cascade through
+	// the propagation effects above and cause infinite update loops.
+	useEffect(() => {
+		if (selectedElementIds.size !== 1) return;
+		const [id] = Array.from(selectedElementIds);
+		if (!id) return;
+		const el = elementsMapRef.current.get(id);
+		if (!el || (el.type !== "freedraw" && (el.type as string) !== "freehand"))
+			return;
+		const { getState } = useCanvasStore;
+		const s = getState();
+		if (s.currentStrokeColor !== el.strokeColor) setStrokeColor(el.strokeColor);
+		if (s.currentStrokeWidth !== el.strokeWidth) setStrokeWidth(el.strokeWidth);
+		if (s.currentOpacity !== (el.opacity ?? 100)) setOpacity(el.opacity ?? 100);
+		const bt = normalizeBrushType((el as FreedrawElement).brushType);
+		if (s.currentBrushType !== bt) setBrushType(bt);
+	}, [
+		selectedElementIds,
+		setStrokeColor,
+		setStrokeWidth,
+		setOpacity,
+		setBrushType,
+	]);
+
+	// Propagate brush type change to selected freedraw elements (mirrors the
+	// strokeColor / strokeWidth / opacity effects above)
+	useEffect(() => {
+		const currentSelection = selectedElementIdsRef.current;
+		if (currentSelection.size === 0) return;
+		Array.from(currentSelection).forEach((id) => {
+			const el = elementsMapRef.current.get(id);
+			if (el?.type === "freedraw" || (el?.type as string) === "freehand") {
+				updateElement(id, {
+					brushType: currentBrushType,
+				} as unknown as Partial<CanvasElement>);
+			}
+		});
+	}, [currentBrushType, updateElement]);
 
 	// Track keyboard modifiers for shape creation (Shift for aspect ratio, Alt for center scaling)
 	useEffect(() => {

@@ -258,7 +258,14 @@ export interface FreedrawElement extends ExcalidrawElementBase {
 	/** Smoothing applied */
 	simulatePressure: boolean;
 	/** Brush style used for this stroke */
-	brushType?: "round" | "marker" | "calligraphy";
+	brushType?: string;
+	/**
+	 * Stable seed for deterministic brush randomness.
+	 * Generated once on stroke creation (pointerdown) and kept immutable.
+	 * Ensures spray dots / crayon jitter / watercolour wash are identical
+	 * across local, remote, and ghost preview rendering.
+	 */
+	seedId?: string;
 }
 
 /**

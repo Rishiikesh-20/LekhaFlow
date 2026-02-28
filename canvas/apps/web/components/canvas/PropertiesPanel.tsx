@@ -8,9 +8,9 @@
 
 "use client";
 
-import { ChevronRight, Lock, Palette, X } from "lucide-react";
-import { useState } from "react";
-import { useCanvasStore } from "../../store/canvas-store";
+import { ChevronDown, ChevronRight, Lock, Palette, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useCanvasStore, useSelectedElements } from "../../store/canvas-store";
 
 type StrokeStyle = "solid" | "dashed" | "dotted";
 
@@ -39,13 +39,37 @@ const BACKGROUND_COLORS = [
 const STROKE_WIDTHS = [1, 2, 4, 6];
 
 const BRUSH_OPTIONS = [
-	{ type: "round" as const, label: "Round", icon: "●" },
-	{ type: "marker" as const, label: "Marker", icon: "◆" },
-	{ type: "calligraphy" as const, label: "Calligraphy", icon: "✒" },
+	{
+		type: "pencil" as const,
+		label: "Pencil",
+		icon: "✏",
+		desc: "Thin & precise",
+	},
+	{
+		type: "spray" as const,
+		label: "Spray",
+		icon: "💨",
+		desc: "Scattered dots",
+	},
+	{
+		type: "crayon" as const,
+		label: "Crayon",
+		icon: "🖍",
+		desc: "Rough texture",
+	},
+	{ type: "marker" as const, label: "Marker", icon: "◆", desc: "Chisel tip" },
+	{
+		type: "watercolour" as const,
+		label: "Watercolour",
+		icon: "💧",
+		desc: "Soft & blended",
+	},
 ];
 
 export function PropertiesPanel() {
 	const [isCollapsed, setIsCollapsed] = useState(true);
+	const [isBrushDropdownOpen, setIsBrushDropdownOpen] = useState(false);
+	const brushDropdownRef = useRef<HTMLDivElement>(null);
 	const {
 		currentStrokeColor,
 		currentBackgroundColor,
@@ -66,6 +90,30 @@ export function PropertiesPanel() {
 		setSloppiness,
 		isReadOnly,
 	} = useCanvasStore();
+
+	// Detect if any selected element is a freedraw so brush controls stay
+	// visible even when the active tool has switched to "selection".
+	const selectedElements = useSelectedElements();
+	const hasSelectedFreedraw = selectedElements.some(
+		(el) => el.type === "freedraw" || (el.type as string) === "freehand",
+	);
+	const showBrushControls = activeTool === "freedraw" || hasSelectedFreedraw;
+
+	// Close brush dropdown on outside click
+	useEffect(() => {
+		function handleClickOutside(e: MouseEvent) {
+			if (
+				brushDropdownRef.current &&
+				!brushDropdownRef.current.contains(e.target as Node)
+			) {
+				setIsBrushDropdownOpen(false);
+			}
+		}
+		if (isBrushDropdownOpen) {
+			document.addEventListener("mousedown", handleClickOutside);
+		}
+		return () => document.removeEventListener("mousedown", handleClickOutside);
+	}, [isBrushDropdownOpen]);
 
 	// In read-only mode, show a locked badge instead of the panel
 	if (isReadOnly) {
@@ -248,28 +296,103 @@ export function PropertiesPanel() {
 					className="w-full cursor-pointer"
 				/>
 
-				{/* Brush Style — only visible for freedraw tool */}
-				{activeTool === "freedraw" && (
+				{/* ── Brush Tools (freedraw only) ─────────────────── */}
+				{showBrushControls && (
 					<>
-						<SectionLabel>Brush Style</SectionLabel>
-						<div className="flex gap-2 mb-4">
-							{BRUSH_OPTIONS.map(({ type, label, icon }) => (
-								<button
-									type="button"
-									key={type}
-									onClick={() => setBrushType(type)}
-									title={label}
-									className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center gap-1 transition-all border-none text-[12px] font-medium ${
-										currentBrushType === type
-											? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
-											: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+						{/* Brush Style Dropdown */}
+						<SectionLabel>Brush</SectionLabel>
+						<div className="relative mb-4" ref={brushDropdownRef}>
+							{/* Trigger */}
+							<button
+								type="button"
+								onClick={() => setIsBrushDropdownOpen(!isBrushDropdownOpen)}
+								className="w-full h-10 rounded-lg cursor-pointer flex items-center gap-2 px-3 transition-all border-none bg-white ring-1 ring-gray-200 hover:ring-violet-300"
+							>
+								<span className="text-base leading-none">
+									{BRUSH_OPTIONS.find((b) => b.type === currentBrushType)?.icon}
+								</span>
+								<span className="text-[13px] font-semibold text-gray-700 flex-1 text-left">
+									{
+										BRUSH_OPTIONS.find((b) => b.type === currentBrushType)
+											?.label
+									}
+								</span>
+								<ChevronDown
+									size={14}
+									className={`text-gray-400 transition-transform duration-150 ${
+										isBrushDropdownOpen ? "rotate-180" : ""
 									}`}
-								>
-									<span>{icon}</span>
-									<span className="hidden sm:inline">{label}</span>
-								</button>
-							))}
+								/>
+							</button>
+
+							{/* Dropdown menu */}
+							{isBrushDropdownOpen && (
+								<div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[60] rounded-xl bg-white shadow-lg ring-1 ring-gray-200 py-1 animate-scale-in">
+									{BRUSH_OPTIONS.map(({ type, label, icon, desc }) => (
+										<button
+											type="button"
+											key={type}
+											onClick={() => {
+												setBrushType(type);
+												setIsBrushDropdownOpen(false);
+											}}
+											className={`w-full flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors border-none text-left ${
+												currentBrushType === type
+													? "bg-violet-50 text-violet-700"
+													: "bg-transparent text-gray-700 hover:bg-gray-50"
+											}`}
+										>
+											<span className="text-base leading-none w-5 text-center">
+												{icon}
+											</span>
+											<div className="flex-1 min-w-0">
+												<span className="text-[13px] font-semibold block">
+													{label}
+												</span>
+												<span className="text-[11px] text-gray-400 block">
+													{desc}
+												</span>
+											</div>
+											{currentBrushType === type && (
+												<span className="w-1.5 h-1.5 rounded-full bg-violet-500 shrink-0" />
+											)}
+										</button>
+									))}
+								</div>
+							)}
 						</div>
+
+						{/* Brush Size slider */}
+						<div className="flex items-center justify-between mb-2">
+							<SectionLabel className="mb-0">Size</SectionLabel>
+							<span className="text-xs font-bold text-violet-500 tabular-nums">
+								{currentStrokeWidth}px
+							</span>
+						</div>
+						<input
+							type="range"
+							min="1"
+							max="40"
+							value={currentStrokeWidth}
+							onChange={(e) => setStrokeWidth(Number(e.target.value))}
+							className="w-full cursor-pointer mb-4"
+						/>
+
+						{/* Brush Opacity slider */}
+						<div className="flex items-center justify-between mb-2">
+							<SectionLabel className="mb-0">Opacity</SectionLabel>
+							<span className="text-xs font-bold text-violet-500 tabular-nums">
+								{currentOpacity}%
+							</span>
+						</div>
+						<input
+							type="range"
+							min="10"
+							max="100"
+							value={currentOpacity}
+							onChange={(e) => setOpacity(Number(e.target.value))}
+							className="w-full cursor-pointer mb-2"
+						/>
 					</>
 				)}
 

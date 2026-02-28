@@ -149,7 +149,7 @@ interface CanvasState {
 	currentOpacity: number;
 
 	/** Current brush type for freedraw tool */
-	currentBrushType: "round" | "marker" | "calligraphy";
+	currentBrushType: "pencil" | "spray" | "crayon" | "marker" | "watercolour";
 
 	/** Whether sketch-style (Rough.js) rendering is enabled for new shapes */
 	currentRoughEnabled: boolean;
@@ -297,7 +297,9 @@ interface CanvasActions {
 	setOpacity: (opacity: number) => void;
 
 	/** Set brush type */
-	setBrushType: (brushType: "round" | "marker" | "calligraphy") => void;
+	setBrushType: (
+		brushType: "pencil" | "spray" | "crayon" | "marker" | "watercolour",
+	) => void;
 
 	/** Set rough style enabled */
 	setRoughEnabled: (enabled: boolean) => void;
@@ -444,7 +446,7 @@ export const initialState: CanvasState = {
 	currentStrokeStyle: "solid",
 	currentFillStyle: "solid",
 	currentOpacity: 100,
-	currentBrushType: "round" as const,
+	currentBrushType: "pencil" as const,
 	currentRoughEnabled: false,
 	currentSloppiness: 1,
 
@@ -748,16 +750,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
 /**
  * Get selected elements as array
+ *
+ * useShallow prevents infinite loops by doing shallow comparison
+ * of array contents instead of reference equality
  */
 export const useSelectedElements = () => {
-	return useCanvasStore((state) => {
-		const selected: CanvasElement[] = [];
-		for (const id of state.selectedElementIds) {
-			const element = state.elements.get(id);
-			if (element) selected.push(element);
-		}
-		return selected;
-	});
+	return useCanvasStore(
+		useShallow((state) => {
+			const selected: CanvasElement[] = [];
+			for (const id of state.selectedElementIds) {
+				const element = state.elements.get(id);
+				if (element) selected.push(element);
+			}
+			return selected;
+		}),
+	);
 };
 
 /**

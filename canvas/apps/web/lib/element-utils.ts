@@ -303,7 +303,8 @@ export function createFreedraw(
 		points,
 		pressures: points.map((p) => p[2] ?? 0.5),
 		simulatePressure: true,
-		brushType: options.brushType ?? "round",
+		brushType: options.brushType ?? "pencil",
+		seedId: options.seedId ?? uuidv4(),
 	} as FreedrawElement;
 }
 
