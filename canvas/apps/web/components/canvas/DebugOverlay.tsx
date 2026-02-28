@@ -21,6 +21,7 @@
 
 import type { CanvasElement } from "@repo/common";
 import { memo } from "react";
+import { getSprayDebug } from "../../lib/brushes/spray-brush";
 import {
 	useCanvasStore,
 	useElementsArray,
@@ -153,6 +154,13 @@ function DebugOverlayInner({
 					)}
 				</Section>
 
+				{/* ── Spray Debug ── */}
+				{activeTool === "freedraw" && isDrawing && brushType === "spray" && (
+					<Section title="Spray">
+						<SprayDebugSection />
+					</Section>
+				)}
+
 				{/* ── Scene ── */}
 				<Section title="Scene">
 					<Row label="elements" value={elements.length} />
@@ -179,5 +187,16 @@ function DebugOverlayInner({
 				</Section>
 			</div>
 		</div>
+	);
+}
+
+/** Spray debug sub-section — mirrors PerfHUD's SprayDebugRow. */
+function SprayDebugSection() {
+	const { totalDots, densityMode } = getSprayDebug();
+	return (
+		<>
+			<Row label="dots" value={totalDots} />
+			<Row label="density" value={densityMode} />
+		</>
 	);
 }

@@ -740,7 +740,16 @@ function renderElement(
 				const brushOpts = {
 					size: element.strokeWidth * 2,
 					seedId: freedrawElement.seedId,
+					// Explicitly zero — prevent any brush from defaulting to non-zero
+					streamline: 0,
+					smoothing: 0,
 				};
+				if (process.env.NODE_ENV !== "production") {
+					console.assert(
+						brushOpts.streamline === 0 && brushOpts.smoothing === 0,
+						"Freedraw: streamline & smoothing must be 0 (raw input)",
+					);
+				}
 				const layers = getCachedLayers(brush, brushPoints, brushOpts);
 				if (layers.length > 1) {
 					// Multi-pass brush (watercolour): render layered Group
@@ -1417,6 +1426,34 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		updateDimensions();
 		window.addEventListener("resize", updateDimensions);
 		return () => window.removeEventListener("resize", updateDimensions);
+	}, []);
+
+	// Pointer capture — ensures stroke events continue even when the
+	// pointer temporarily leaves the canvas boundary during a drag.
+	useEffect(() => {
+		const stage = stageRef.current;
+		if (!stage) return;
+		const content = stage.content; // Konva's inner <div> housing the canvases
+		if (!content) return;
+
+		const onPointerDown = (e: PointerEvent) => {
+			content.setPointerCapture(e.pointerId);
+		};
+		const onPointerUp = (e: PointerEvent) => {
+			if (content.hasPointerCapture(e.pointerId)) {
+				content.releasePointerCapture(e.pointerId);
+			}
+		};
+
+		content.addEventListener("pointerdown", onPointerDown);
+		content.addEventListener("pointerup", onPointerUp);
+		content.addEventListener("pointercancel", onPointerUp);
+
+		return () => {
+			content.removeEventListener("pointerdown", onPointerDown);
+			content.removeEventListener("pointerup", onPointerUp);
+			content.removeEventListener("pointercancel", onPointerUp);
+		};
 	}, []);
 
 	// Update selection awareness when selection changes

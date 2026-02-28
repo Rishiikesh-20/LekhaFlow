@@ -48,13 +48,32 @@ const SPRAY_DEFAULTS = {
 	stepDistance: 4,
 	/** Base dot radius */
 	dotRadius: 0.8,
-	/** Hard cap on total dots per stroke to avoid SVG path explosion (Phase 6) */
-	maxDotsPerStroke: 600,
+	/**
+	 * Adaptive density caps (replaces old hard 600-dot cap).
+	 * Below softCap  → full density (dotsPerStep).
+	 * softCap–hardCap → linear taper from dotsPerStep → minDotsPerStep.
+	 * Above hardCap  → fixed minDotsPerStep (never zero — always responsive).
+	 */
+	softCap: 1200,
+	hardCap: 4000,
+	minDotsPerStep: 2,
 } as const;
 
 // ============================================================================
 // SPRAY BRUSH
 // ============================================================================
+
+/** Live counters for PerfHUD — only meaningful during active drawing. */
+let _lastTotalDots = 0;
+let _lastDensityMode: "full" | "tapering" | "min" = "full";
+
+/** Read-only accessors for PerfHUD / debug overlays */
+export function getSprayDebug(): {
+	totalDots: number;
+	densityMode: "full" | "tapering" | "min";
+} {
+	return { totalDots: _lastTotalDots, densityMode: _lastDensityMode };
+}
 
 export const SprayBrush: Brush = {
 	type: "spray",
@@ -68,16 +87,19 @@ export const SprayBrush: Brush = {
 
 		const size = options.size ?? SPRAY_DEFAULTS.size;
 		const radius = size / 2;
-		const dotsPerStep = SPRAY_DEFAULTS.dotsPerStep;
+		const baseDots = SPRAY_DEFAULTS.dotsPerStep;
 		const stepDist = SPRAY_DEFAULTS.stepDistance;
 		const dotR = SPRAY_DEFAULTS.dotRadius;
 		const seedId = options.seedId ?? "";
-		const maxDots = SPRAY_DEFAULTS.maxDotsPerStroke;
+
+		const softCap = SPRAY_DEFAULTS.softCap;
+		const hardCap = SPRAY_DEFAULTS.hardCap;
+		const minDots = SPRAY_DEFAULTS.minDotsPerStep;
 
 		// Single point → burst at a single point
 		if (points.length === 1) {
 			const p = points[0] as BrushPoint;
-			return emitBurst(p.x, p.y, radius, dotsPerStep * 3, dotR, seedId, 0);
+			return emitBurst(p.x, p.y, radius, baseDots * 3, dotR, seedId, 0);
 		}
 
 		// Walk along the polyline at fixed step intervals
@@ -88,21 +110,11 @@ export const SprayBrush: Brush = {
 
 		const first = points[0] as BrushPoint;
 		parts.push(
-			emitBurst(
-				first.x,
-				first.y,
-				radius,
-				dotsPerStep,
-				dotR,
-				seedId,
-				stepIndex++,
-			),
+			emitBurst(first.x, first.y, radius, baseDots, dotR, seedId, stepIndex++),
 		);
-		totalDots += dotsPerStep;
+		totalDots += baseDots;
 
 		for (let i = 1; i < points.length; i++) {
-			if (totalDots >= maxDots) break; // Phase 6: hard cap
-
 			const prev = points[i - 1] as BrushPoint;
 			const curr = points[i] as BrushPoint;
 			const d = dist(prev.x, prev.y, curr.x, curr.y);
@@ -111,23 +123,45 @@ export const SprayBrush: Brush = {
 
 			accumDist += d;
 			while (accumDist >= stepDist) {
-				if (totalDots >= maxDots) break; // Phase 6: hard cap
 				accumDist -= stepDist;
 				const t = 1 - accumDist / d;
 				const x = lerp(prev.x, curr.x, t);
 				const y = lerp(prev.y, curr.y, t);
+
+				// Adaptive density: taper from baseDots → minDots between softCap and hardCap
+				let effectiveDots: number = baseDots;
+				if (totalDots >= softCap) {
+					const progress = Math.min(
+						(totalDots - softCap) / (hardCap - softCap),
+						1,
+					);
+					effectiveDots = Math.round(lerp(baseDots, minDots, progress));
+				}
+
 				// Pressure affects density
 				const pressure =
 					curr.pressure !== undefined && curr.pressure > 0
 						? curr.pressure
 						: 0.5;
-				const adjustedDots = Math.max(3, Math.round(dotsPerStep * pressure));
+				const adjustedDots = Math.max(
+					minDots,
+					Math.round(effectiveDots * pressure),
+				);
 				parts.push(
 					emitBurst(x, y, radius, adjustedDots, dotR, seedId, stepIndex++),
 				);
 				totalDots += adjustedDots;
 			}
 		}
+
+		// Update debug counters for PerfHUD
+		_lastTotalDots = totalDots;
+		_lastDensityMode =
+			totalDots >= SPRAY_DEFAULTS.hardCap
+				? "min"
+				: totalDots >= SPRAY_DEFAULTS.softCap
+					? "tapering"
+					: "full";
 
 		return parts.join(" ");
 	},

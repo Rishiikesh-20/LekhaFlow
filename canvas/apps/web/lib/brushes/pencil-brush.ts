@@ -179,7 +179,11 @@ export const PencilBrush: Brush = {
 		const simulate =
 			options.simulatePressure ?? PENCIL_DEFAULTS.simulatePressure;
 
-		const smoothed = streamline(points, streamlineFactor);
+		// When streamline is 0 bypass the EMA pass entirely — pure raw input.
+		const smoothed =
+			streamlineFactor > 0
+				? streamline(points, streamlineFactor)
+				: (points as BrushPoint[]);
 		const { left, right } = buildOutline(smoothed, size, thinning, simulate);
 
 		return outlineToSvgPath(left, right);

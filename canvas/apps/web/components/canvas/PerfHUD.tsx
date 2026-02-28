@@ -18,6 +18,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { getPathCacheSize } from "../../lib/brushes/path-cache";
+import { getSprayDebug } from "../../lib/brushes/spray-brush";
 import { useCanvasStore, useElementsArray } from "../../store/canvas-store";
 
 // ─── constants ──────────────────────────────────────────────────────────────
@@ -57,6 +58,7 @@ function PerfHUDInner({ freedrawPointCount }: { freedrawPointCount: number }) {
 	const elements = useElementsArray();
 	const isDrawing = useCanvasStore((s) => s.isDrawing);
 	const activeTool = useCanvasStore((s) => s.activeTool);
+	const currentBrushType = useCanvasStore((s) => s.currentBrushType);
 
 	const [perf, setPerf] = useState<PerfSnapshot>({ fps: 0, frameTime: 0 });
 
@@ -158,6 +160,11 @@ function PerfHUDInner({ freedrawPointCount }: { freedrawPointCount: number }) {
 					</div>
 				)}
 
+				{/* Spray debug counters */}
+				{activeTool === "freedraw" &&
+					isDrawing &&
+					currentBrushType === "spray" && <SprayDebugRow />}
+
 				{/* Brush path cache utilisation (Phase 6) */}
 				<div className="flex justify-between">
 					<span className="text-gray-400">path cache</span>
@@ -167,5 +174,35 @@ function PerfHUDInner({ freedrawPointCount }: { freedrawPointCount: number }) {
 				</div>
 			</div>
 		</div>
+	);
+}
+
+/**
+ * Spray debug sub-row — reads the module-level counters from spray-brush.ts.
+ * Rendered only while spray is actively drawing so getSprayDebug() is fresh.
+ */
+function SprayDebugRow() {
+	const { totalDots, densityMode } = getSprayDebug();
+	const modeColor =
+		densityMode === "full"
+			? "text-green-400"
+			: densityMode === "tapering"
+				? "text-yellow-400"
+				: "text-red-400";
+	return (
+		<>
+			<div className="flex justify-between">
+				<span className="text-gray-400">spray dots</span>
+				<span className="font-mono tabular-nums text-gray-100">
+					{totalDots}
+				</span>
+			</div>
+			<div className="flex justify-between">
+				<span className="text-gray-400">density</span>
+				<span className={`font-mono tabular-nums ${modeColor}`}>
+					{densityMode}
+				</span>
+			</div>
+		</>
 	);
 }
