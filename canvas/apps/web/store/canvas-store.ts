@@ -149,7 +149,7 @@ interface CanvasState {
 	currentOpacity: number;
 
 	/** Current brush type for freedraw tool */
-	currentBrushType: "pencil" | "spray" | "crayon" | "marker" | "watercolour";
+	currentBrushType: "pencil" | "spray" | "watercolour";
 
 	/** Whether sketch-style (Rough.js) rendering is enabled for new shapes */
 	currentRoughEnabled: boolean;
@@ -297,9 +297,7 @@ interface CanvasActions {
 	setOpacity: (opacity: number) => void;
 
 	/** Set brush type */
-	setBrushType: (
-		brushType: "pencil" | "spray" | "crayon" | "marker" | "watercolour",
-	) => void;
+	setBrushType: (brushType: "pencil" | "spray" | "watercolour") => void;
 
 	/** Set rough style enabled */
 	setRoughEnabled: (enabled: boolean) => void;

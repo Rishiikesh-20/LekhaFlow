@@ -496,29 +496,46 @@ export function isPointInElement(
 	element: CanvasElement,
 	threshold = 10,
 ): boolean {
-	// TODO: Account for rotation
+	// If the element is rotated, un-rotate the test point around the element
+	// center so that axis-aligned hit tests work in local coordinates.
+	let testPoint = point;
+	if (element.angle && element.angle !== 0) {
+		const cx = element.x + element.width / 2;
+		const cy = element.y + element.height / 2;
+		const rad = (-element.angle * Math.PI) / 180; // negative = un-rotate
+		const cos = Math.cos(rad);
+		const sin = Math.sin(rad);
+		testPoint = {
+			x: cx + (point.x - cx) * cos - (point.y - cy) * sin,
+			y: cy + (point.x - cx) * sin + (point.y - cy) * cos,
+		};
+	}
 
 	switch (element.type) {
 		case "rectangle":
 		case "text":
-			return isPointInRectangle(point, element, threshold);
+			return isPointInRectangle(testPoint, element, threshold);
 
 		case "ellipse":
-			return isPointInEllipse(point, element, threshold);
+			return isPointInEllipse(testPoint, element, threshold);
 
 		case "diamond":
-			return isPointInDiamond(point, element, threshold);
+			return isPointInDiamond(testPoint, element, threshold);
 
 		case "line":
 		case "arrow":
 			return isPointNearLine(
-				point,
+				testPoint,
 				element as LineElement | ArrowElement,
 				threshold,
 			);
 
 		case "freedraw":
-			return isPointNearFreedraw(point, element as FreedrawElement, threshold);
+			return isPointNearFreedraw(
+				testPoint,
+				element as FreedrawElement,
+				threshold,
+			);
 
 		default:
 			return false;
@@ -693,6 +710,32 @@ export function getElementAtPoint(
 		}
 	}
 	return null;
+}
+
+/**
+ * Find ALL elements at a point, sorted by zIndex (topmost first).
+ *
+ * Used for:
+ * - Layer cycling (Alt+Click to select elements below the top one)
+ * - Unified hit testing that checks all overlapping objects
+ *
+ * @param point - Point to test
+ * @param elements - Array of elements (any order)
+ * @returns Array of hit elements, sorted topmost-first by zIndex
+ */
+export function getAllElementsAtPoint(
+	point: Point,
+	elements: CanvasElement[],
+): CanvasElement[] {
+	const hits: CanvasElement[] = [];
+	for (const element of elements) {
+		if (!element.isDeleted && isPointInElement(point, element)) {
+			hits.push(element);
+		}
+	}
+	// Sort by zIndex descending (topmost first)
+	hits.sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+	return hits;
 }
 
 /**

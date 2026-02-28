@@ -7,8 +7,6 @@
  * All built-in brushes are registered at module load time.
  */
 
-import { CrayonBrush } from "./crayon-brush";
-import { MarkerBrush } from "./marker-brush";
 import { PencilBrush } from "./pencil-brush";
 import { SprayBrush } from "./spray-brush";
 import type { Brush, BrushType } from "./types";
@@ -21,8 +19,6 @@ import { WatercolourBrush } from "./watercolour-brush";
 const brushMap = new Map<string, Brush>([
 	[PencilBrush.type, PencilBrush],
 	[SprayBrush.type, SprayBrush],
-	[CrayonBrush.type, CrayonBrush],
-	[MarkerBrush.type, MarkerBrush],
 	[WatercolourBrush.type, WatercolourBrush],
 ]);
 

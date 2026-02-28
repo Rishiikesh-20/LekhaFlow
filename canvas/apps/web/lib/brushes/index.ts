@@ -19,17 +19,11 @@
  * const pencil = getBrush("pencil")!;
  * const svgPath = pencil.generatePath(points, { size: 4 });
  *
- * const marker = getBrush("marker")!;
- * const markerPath = marker.generatePath(points, { size: 24 });
- *
  * // Backward compat: old "round" type → resolved to "pencil"
  * const resolved = normalizeBrushType("round"); // → "pencil"
  * ```
  */
 
-// Brush implementations
-export { CrayonBrush } from "./crayon-brush";
-export { MarkerBrush } from "./marker-brush";
 // Path cache
 export {
 	clearPathCache,

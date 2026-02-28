@@ -47,7 +47,17 @@ async function fetchWithTimeout(
 				err instanceof TypeError && err.message === "Failed to fetch";
 			const isAbort = err instanceof DOMException && err.name === "AbortError";
 
-			if ((!isNetworkError && !isAbort) || attempt >= MAX_RETRIES) throw err;
+			if ((!isNetworkError && !isAbort) || attempt >= MAX_RETRIES) {
+				// Surface a clearer message so devs know the root cause
+				if (isNetworkError) {
+					console.error(
+						`[Supabase] Network unreachable after ${attempt} retries. ` +
+							"Check that NEXT_PUBLIC_SUPABASE_URL is correct and the " +
+							"project is not paused: https://supabase.com/dashboard",
+					);
+				}
+				throw err;
+			}
 
 			// Short delay before retry: 1s, 2s
 			await new Promise((r) => setTimeout(r, 1000 * attempt));

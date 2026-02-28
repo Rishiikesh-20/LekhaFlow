@@ -17,8 +17,8 @@ import type { Brush, BrushOptions, BrushPoint, RenderLayer } from "./types";
 // CONSTANTS
 // ============================================================================
 
-/** Maximum number of cached paths before LRU eviction */
-const MAX_CACHE_SIZE = 256;
+/** Maximum number of cached paths before LRU eviction (Phase 6: raised for heavy canvases) */
+const MAX_CACHE_SIZE = 512;
 
 // ============================================================================
 // CACHE KEY GENERATION
@@ -156,6 +156,13 @@ export function getCachedLayers(
 	let layers: RenderLayer[];
 	if (brush.getLayers) {
 		layers = brush.getLayers(points, options);
+		// Phase 6: safety fallback — if getLayers returns empty for non-empty
+		// points (race condition / unexpected state), fall back to single-layer
+		// path so the stroke never visually disappears.
+		if (layers.length === 0 && points.length > 0) {
+			const path = getCachedPath(brush, points, options);
+			layers = [{ path, opacity: 1 }];
+		}
 	} else {
 		// Single-layer fallback: use getCachedPath
 		const path = getCachedPath(brush, points, options);

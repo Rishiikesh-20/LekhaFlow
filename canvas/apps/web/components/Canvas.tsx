@@ -55,7 +55,7 @@ import type {
 } from "@repo/common";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	Arrow,
@@ -86,9 +86,11 @@ import {
 	createLine,
 	createShape,
 	createText,
+	getAllElementsAtPoint,
 	getElementAtPoint,
 	type ShapeModifiers,
 } from "../lib/element-utils";
+import { importSceneFromFile } from "../lib/import-scene";
 import {
 	type RoughRenderOptions,
 	roughArrow,
@@ -97,7 +99,7 @@ import {
 	roughLine,
 	roughRectangle,
 } from "../lib/rough-renderer";
-import { outlineToSvgPath, simplifyPath } from "../lib/stroke-utils";
+import { outlineToSvgPath } from "../lib/stroke-utils";
 import { supabase } from "../lib/supabase.client";
 import {
 	useCanvasStore,
@@ -109,10 +111,12 @@ import { AttributionTooltip } from "./canvas/AttributionTooltip";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
+import { DebugOverlay } from "./canvas/DebugOverlay";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
 import { HeaderLeft, HeaderRight } from "./canvas/Header";
+import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RotationControls } from "./canvas/RotationControls";
@@ -225,6 +229,7 @@ function renderElement(
 					fillColor: element.backgroundColor,
 					sloppiness: element.roughStyle.sloppiness,
 					seed: element.seed,
+					fillStyle: element.fillStyle,
 				};
 				const { strokePath, fillPath, fillMode } = roughRectangle(
 					element.width,
@@ -241,6 +246,14 @@ function renderElement(
 						offsetX={element.width / 2}
 						offsetY={element.height / 2}
 					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect
+							x={0}
+							y={0}
+							width={element.width}
+							height={element.height}
+							fill="transparent"
+						/>
 						{fillPath && fillMode === "fill" && (
 							<Path
 								data={fillPath}
@@ -297,7 +310,7 @@ function renderElement(
 					offsetY={element.height / 2}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 					cornerRadius={element.roundness?.value ?? 0}
@@ -313,6 +326,7 @@ function renderElement(
 					fillColor: element.backgroundColor,
 					sloppiness: element.roughStyle.sloppiness,
 					seed: element.seed,
+					fillStyle: element.fillStyle,
 				};
 				// Rough.js ellipse is center-based: (0,0) center with full w/h
 				const { strokePath, fillPath, fillMode } = roughEllipse(
@@ -330,6 +344,14 @@ function renderElement(
 						x={element.x + element.width / 2}
 						y={element.y + element.height / 2}
 					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect
+							x={-Math.abs(element.width) / 2}
+							y={-Math.abs(element.height) / 2}
+							width={Math.abs(element.width)}
+							height={Math.abs(element.height)}
+							fill="transparent"
+						/>
 						{fillPath && fillMode === "fill" && (
 							<Path
 								data={fillPath}
@@ -384,7 +406,7 @@ function renderElement(
 					radiusY={Math.abs(element.height) / 2}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 				/>
@@ -721,7 +743,7 @@ function renderElement(
 				};
 				const layers = getCachedLayers(brush, brushPoints, brushOpts);
 				if (layers.length > 1) {
-					// Multi-pass brush (crayon, marker, watercolour): render layered Group
+					// Multi-pass brush (watercolour): render layered Group
 					return (
 						<Group
 							key={element.id}
@@ -773,12 +795,12 @@ function renderElement(
 				);
 			}
 
-			// Fallback to perfect-freehand for unknown brush types
+			// Fallback to perfect-freehand for unknown brush types — raw input, no smoothing
 			const pathData = outlineToSvgPath(points, {
 				size: element.strokeWidth * 2,
 				thinning: 0.5,
-				smoothing: 0.5,
-				streamline: 0.5,
+				smoothing: 0,
+				streamline: 0,
 				simulatePressure: true,
 			});
 			return (
@@ -811,6 +833,7 @@ function renderElement(
 					fillColor: element.backgroundColor,
 					sloppiness: element.roughStyle.sloppiness,
 					seed: element.seed,
+					fillStyle: element.fillStyle,
 				};
 				// roughDiamond generates paths at (0,0) origin with given w/h
 				const { strokePath, fillPath, fillMode } = roughDiamond(
@@ -828,6 +851,8 @@ function renderElement(
 						offsetX={w / 2}
 						offsetY={h / 2}
 					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect x={0} y={0} width={w} height={h} fill="transparent" />
 						{fillPath && fillMode === "fill" && (
 							<Path
 								data={fillPath}
@@ -896,7 +921,7 @@ function renderElement(
 					hitStrokeWidth={Math.max(element.strokeWidth, 10)}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 				/>
@@ -995,6 +1020,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		currentStrokeWidth,
 		currentStrokeStyle,
 		currentOpacity,
+		currentFillStyle,
 		currentBrushType,
 		currentRoughEnabled,
 		currentSloppiness,
@@ -1117,6 +1143,41 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		clearGhost();
 	}, [activeTool, clearGhost]);
 
+	// Per-tool settings save / restore (Phase 5).
+	// When leaving freedraw, snapshot current brush settings into a ref.
+	// When returning to freedraw, restore them so selection-sync doesn't
+	// permanently overwrite the user's chosen drawing settings.
+	const prevActiveToolRef = useRef(activeTool);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: setters are stable; only activeTool should trigger this effect
+	useEffect(() => {
+		const prev = prevActiveToolRef.current;
+		prevActiveToolRef.current = activeTool;
+		if (prev === activeTool) return;
+
+		const s = useCanvasStore.getState();
+
+		// Leaving freedraw → save
+		if (prev === "freedraw") {
+			savedFreedrawSettingsRef.current = {
+				strokeColor: s.currentStrokeColor,
+				strokeWidth: s.currentStrokeWidth,
+				opacity: s.currentOpacity,
+				brushType: s.currentBrushType,
+			};
+		}
+
+		// Entering freedraw → restore
+		if (activeTool === "freedraw" && savedFreedrawSettingsRef.current) {
+			const saved = savedFreedrawSettingsRef.current;
+			if (s.currentStrokeColor !== saved.strokeColor)
+				setStrokeColor(saved.strokeColor);
+			if (s.currentStrokeWidth !== saved.strokeWidth)
+				setStrokeWidth(saved.strokeWidth);
+			if (s.currentOpacity !== saved.opacity) setOpacity(saved.opacity);
+			if (s.currentBrushType !== saved.brushType) setBrushType(saved.brushType);
+		}
+	}, [activeTool]);
+
 	// ─────────────────────────────────────────────────────────────────
 	// LOCAL STATE for drawing
 	// ─────────────────────────────────────────────────────────────────
@@ -1144,6 +1205,19 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Freedraw points accumulator (persistent strokes)
 	const freedrawPointsRef = useRef<Array<[number, number]>>([]);
+
+	// rAF batching for freedraw updates (Phase 5 — performance)
+	const freedrawRafRef = useRef<number>(0);
+	const freedrawDirtyRef = useRef(false);
+
+	// Per-tool settings save/restore: remember freedraw appearance when
+	// switching away so it isn't overwritten by the selection-sync effect.
+	const savedFreedrawSettingsRef = useRef<{
+		strokeColor: string;
+		strokeWidth: number;
+		opacity: number;
+		brushType: "pencil" | "spray" | "watercolour";
+	} | null>(null);
 
 	// Laser points accumulator (temporary pointer)
 	const laserPointsRef = useRef<Array<[number, number]>>([]);
@@ -1201,6 +1275,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		originalAngle: number;
 	} | null>(null);
 
+	// rAF-batched rotation: store pending angle in a ref, flush via rAF
+	const pendingRotationRef = useRef<{
+		id: string;
+		angle: number;
+	} | null>(null);
+	const rotationRafRef = useRef<number | null>(null);
+
 	// Export modal state
 	const [showExportModal, setShowExportModal] = useState(false);
 	const [exportFormat, setExportFormat] = useState<"png" | "svg" | "json">(
@@ -1212,6 +1293,33 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setExportFormat(format);
 		setShowExportModal(true);
 	}, []);
+
+	// ─────────────────────────────────────────────────────────────────
+	// DEBUG + PERF OVERLAYS  (Phase 0)
+	// ─────────────────────────────────────────────────────────────────
+
+	const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+	const [showPerfHUD, setShowPerfHUD] = useState(false);
+
+	/** Live freedraw point count (cheap — just reads ref length). */
+	const freedrawPointCount = freedrawPointsRef.current.length;
+
+	// Import JSON scene
+	const handleImportScene = useCallback(() => {
+		const nextZ =
+			elements.length === 0
+				? 1
+				: Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
+
+		importSceneFromFile(addElement, nextZ).then((result) => {
+			if (result.success) {
+				console.log(`[LekhaFlow] Imported ${result.importedCount} elements`);
+			} else if (result.error && result.error !== "Cancelled") {
+				console.error(`[LekhaFlow] Import failed: ${result.error}`);
+				window.alert(`Import failed: ${result.error}`);
+			}
+		});
+	}, [elements, addElement]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// AUTO-CAPTURE THUMBNAIL for dashboard preview
@@ -1363,6 +1471,15 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		});
 	}, [currentOpacity, updateElement]);
 
+	// Update selected elements when fill style changes (Phase 3)
+	useEffect(() => {
+		const currentSelection = selectedElementIdsRef.current;
+		if (currentSelection.size === 0) return;
+		Array.from(currentSelection).forEach((id) => {
+			updateElement(id, { fillStyle: currentFillStyle });
+		});
+	}, [currentFillStyle, updateElement]);
+
 	// Mirror a Map of elements by id for cheap O(1) lookups in effects and callbacks
 	const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
 	useEffect(() => {
@@ -1371,9 +1488,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Sync selected freedraw element's appearance back to the panel tools so
 	// PropertiesPanel reflects the element's actual values on selection.
+	// Only runs in selection mode — skipped in freedraw to avoid overwriting
+	// the user's per-tool settings that are restored on tool switch (Phase 5).
 	// Guards prevent unnecessary store writes that would cascade through
 	// the propagation effects above and cause infinite update loops.
 	useEffect(() => {
+		if (activeTool === "freedraw") return; // preserve per-tool settings
 		if (selectedElementIds.size !== 1) return;
 		const [id] = Array.from(selectedElementIds);
 		if (!id) return;
@@ -1388,6 +1508,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		const bt = normalizeBrushType((el as FreedrawElement).brushType);
 		if (s.currentBrushType !== bt) setBrushType(bt);
 	}, [
+		activeTool,
 		selectedElementIds,
 		setStrokeColor,
 		setStrokeWidth,
@@ -1845,8 +1966,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				return;
 			}
 
-			// Duplicate: Ctrl/Cmd + D
-			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+			// Duplicate: Ctrl/Cmd + D (not Shift — Shift+D = debug overlay)
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				!e.shiftKey &&
+				e.key.toLowerCase() === "d"
+			) {
 				e.preventDefault();
 				handleCopy();
 				handlePaste();
@@ -1873,6 +1998,39 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				setShowExportModal(true);
 				return;
 			}
+
+			// Debug Overlay: Ctrl/Cmd + Shift + D
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "d"
+			) {
+				e.preventDefault();
+				setShowDebugOverlay((prev) => !prev);
+				return;
+			}
+
+			// Perf HUD: Ctrl/Cmd + Shift + P
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "p"
+			) {
+				e.preventDefault();
+				setShowPerfHUD((prev) => !prev);
+				return;
+			}
+
+			// Import Scene JSON: Ctrl/Cmd + Shift + I
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "i"
+			) {
+				e.preventDefault();
+				handleImportScene();
+				return;
+			}
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
@@ -1893,6 +2051,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		handleSendToBack,
 		isReadOnly,
 		setReadOnly,
+		handleImportScene,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -1966,38 +2125,54 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 			switch (activeTool) {
 				case "selection": {
-					// Check what was clicked
+					// --- Resolve Konva target (walk up parent for rough Groups) ---
+					let konvaTargetId = e.target.id?.() || "";
+					if (!konvaTargetId && e.target.parent) {
+						konvaTargetId = e.target.parent.id?.() || "";
+					}
 					const clickedOnStage = e.target === e.target.getStage();
-					const targetId = e.target.id?.();
-					const isActualElement =
-						targetId && elements.some((el) => el.id === targetId);
+					const isKonvaElement =
+						konvaTargetId && elements.some((el) => el.id === konvaTargetId);
 
-					if (isActualElement) {
-						// Clicked directly on an element - select it and enable dragging
-						if (!selectedElementIds.has(targetId)) {
-							setSelectedElementIds(new Set([targetId]));
+					// If the click landed on a non-stage, non-element Konva node
+					// (resize handle, rotation control, etc.) let its own handler run.
+					if (!clickedOnStage && !isKonvaElement) {
+						break;
+					}
+
+					// --- Math-based hit testing (single source of truth) ---
+					const allHits = getAllElementsAtPoint(point, elements);
+
+					// Alt+Click: cycle through overlapping elements
+					if (
+						altPressed &&
+						allHits.length > 1 &&
+						selectedElementIds.size === 1
+					) {
+						const currentId = Array.from(selectedElementIds)[0];
+						const currentIdx = allHits.findIndex((el) => el.id === currentId);
+						if (currentIdx !== -1) {
+							const nextIdx = (currentIdx + 1) % allHits.length;
+							const target = allHits[nextIdx];
+							if (target) {
+								setSelectedElementIds(new Set([target.id]));
+							}
+							break;
+						}
+					}
+
+					// Normal click: select topmost element at point
+					if (allHits.length > 0) {
+						const topHit = allHits[0];
+						if (topHit && !selectedElementIds.has(topHit.id)) {
+							setSelectedElementIds(new Set([topHit.id]));
 						}
 						setIsDragging(true);
 						break;
 					}
 
-					if (!clickedOnStage) {
-						// Clicked on a Konva shape that's NOT an element (rotation control, resize handle, etc.)
-						// Don't change selection - let the control's own handlers deal with it
-						break;
-					}
-
-					// Clicked on the stage background - use custom hit detection for overlapping elements
-					const clickedElement = getElementAtPoint(point, elements);
-					if (clickedElement) {
-						if (!selectedElementIds.has(clickedElement.id)) {
-							setSelectedElementIds(new Set([clickedElement.id]));
-						}
-						setIsDragging(true);
-					} else {
-						// Clicked on empty canvas - clear selection
-						clearSelection();
-					}
+					// Clicked on empty canvas — clear selection
+					clearSelection();
 					break;
 				}
 
@@ -2025,6 +2200,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							backgroundColor: currentBackgroundColor,
 							strokeWidth: currentStrokeWidth,
 							strokeStyle: currentStrokeStyle,
+							fillStyle: currentFillStyle,
 							opacity: currentOpacity,
 							roughStyle: currentRoughEnabled
 								? { enabled: true, sloppiness: currentSloppiness }
@@ -2123,6 +2299,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			currentStrokeWidth,
 			currentStrokeStyle,
 			currentOpacity,
+			currentFillStyle,
 			currentBrushType,
 			currentRoughEnabled,
 			currentSloppiness,
@@ -2292,18 +2469,30 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}
 
 				case "freedraw": {
-					// Add point to freedraw path (persistent)
+					// Add point to ref immediately (zero allocation on hot path)
 					freedrawPointsRef.current.push([dx, dy]);
 
-					setDrawingElement({
-						...drawingElement,
-						points: freedrawPointsRef.current,
-					} as FreedrawElement);
-					// Broadcast ghost preview to remote users
-					broadcastDrawingPreview({
-						...drawingElement,
-						points: freedrawPointsRef.current,
-					});
+					// rAF-batched render: schedule a single state update per frame
+					// instead of re-rendering the entire scene on every pointermove.
+					if (!freedrawDirtyRef.current) {
+						freedrawDirtyRef.current = true;
+						freedrawRafRef.current = requestAnimationFrame(() => {
+							freedrawDirtyRef.current = false;
+							// drawingElement may be stale in the closure so read from ref-stable data
+							setDrawingElement((prev) => {
+								if (!prev || prev.type !== "freedraw") return prev;
+								return {
+									...prev,
+									points: freedrawPointsRef.current,
+								} as FreedrawElement;
+							});
+							// Broadcast ghost preview to remote users
+							broadcastDrawingPreview({
+								...drawingElement,
+								points: freedrawPointsRef.current,
+							});
+						});
+					}
 					break;
 				}
 			}
@@ -2342,18 +2531,22 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		// Clear ghost preview immediately — before any commit logic
 		clearGhost();
 
+		// Cancel any pending freedraw rAF so the final commit uses the
+		// complete point buffer (Phase 5 — flush rAF).
+		if (freedrawRafRef.current) {
+			cancelAnimationFrame(freedrawRafRef.current);
+			freedrawRafRef.current = 0;
+			freedrawDirtyRef.current = false;
+		}
+
 		// Finalize drawing
 		if (isDrawing && drawingElement) {
-			// Freedraw: simplified, no pressure calculation
+			// Freedraw: commit raw points with no simplification so the
+			// stroke faithfully follows the cursor.
 			if (drawingElement.type === "freedraw") {
 				const freedrawElement = drawingElement as FreedrawElement;
 				if (freedrawPointsRef.current.length > 2) {
-					// Optionally simplify path for network efficiency
-					const simplifiedPoints = simplifyPath(
-						freedrawPointsRef.current,
-						2.0, // epsilon value
-					);
-					freedrawElement.points = simplifiedPoints;
+					freedrawElement.points = freedrawPointsRef.current;
 					// Assign proper zIndex so new elements appear on top
 					freedrawElement.zIndex = getNextZIndex();
 					addElement(freedrawElement);
@@ -2680,24 +2873,46 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	);
 
 	/**
-	 * Handle rotation move - Update element angle during drag
+	 * Handle rotation move - rAF-batched angle update for smooth rotation
 	 */
 	const handleRotationMove = useCallback(
 		(elementId: string, angle: number, _e: KonvaEventObject<MouseEvent>) => {
 			if (!rotatingElement || rotatingElement.id !== elementId) return;
 
-			// Update element angle in real-time
-			updateElement(elementId, { angle });
+			// Store pending angle; let rAF flush it
+			pendingRotationRef.current = { id: elementId, angle };
+			if (rotationRafRef.current == null) {
+				rotationRafRef.current = requestAnimationFrame(() => {
+					rotationRafRef.current = null;
+					const pending = pendingRotationRef.current;
+					if (pending) {
+						updateElement(pending.id, { angle: pending.angle });
+					}
+				});
+			}
 		},
 		[rotatingElement, updateElement],
 	);
 
 	/**
-	 * Handle rotation end - Finalize the rotation operation
+	 * Handle rotation end - Flush any pending rAF and finalize
 	 */
-	const handleRotationEnd = useCallback((_elementId: string) => {
-		setRotatingElement(null);
-	}, []);
+	const handleRotationEnd = useCallback(
+		(_elementId: string) => {
+			// Flush any pending rotation before clearing state
+			if (rotationRafRef.current != null) {
+				cancelAnimationFrame(rotationRafRef.current);
+				rotationRafRef.current = null;
+			}
+			const pending = pendingRotationRef.current;
+			if (pending) {
+				updateElement(pending.id, { angle: pending.angle });
+				pendingRotationRef.current = null;
+			}
+			setRotatingElement(null);
+		},
+		[updateElement],
+	);
 
 	/**
 	 * Handle mouse leave - Clear cursor from awareness
@@ -2706,6 +2921,34 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		updateCursor(null);
 		setHoveredElement(null);
 	}, [updateCursor]);
+
+	// ─────────────────────────────────────────────────────────────────
+	// MEMOISED COMMITTED ELEMENTS (Phase 6)
+	// Re-compute render output only when elements, selection, or
+	// relevant handlers change — NOT on every drawingElement update.
+	// ─────────────────────────────────────────────────────────────────
+
+	const committedElements = useMemo(
+		() =>
+			elements.map((element) =>
+				renderElement(
+					element,
+					selectedElementIds.has(element.id),
+					activeTool === "selection" && !rotatingElement,
+					false,
+					handleElementDragEnd,
+					handleJointDrag,
+				),
+			),
+		[
+			elements,
+			selectedElementIds,
+			activeTool,
+			rotatingElement,
+			handleElementDragEnd,
+			handleJointDrag,
+		],
+	);
 
 	// ─────────────────────────────────────────────────────────────────
 	// RENDER
@@ -2732,7 +2975,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			/>
 
 			{/* UI Components */}
-			<HeaderLeft onClearCanvas={handleClearCanvas} onExport={handleExport} />
+			<HeaderLeft
+				onClearCanvas={handleClearCanvas}
+				onExport={handleExport}
+				onImportJson={handleImportScene}
+			/>
 			<HeaderRight />
 			<Toolbar />
 			<PropertiesPanel />
@@ -2742,6 +2989,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				canUndo={canUndo}
 				canRedo={canRedo}
 			/>
+
+			{/* Phase 0 — Debug & Perf overlays */}
+			<DebugOverlay
+				visible={showDebugOverlay}
+				freedrawPointCount={freedrawPointCount}
+			/>
+			<PerfHUD visible={showPerfHUD} freedrawPointCount={freedrawPointCount} />
 
 			{/* Empty Canvas Hero - shown when no elements */}
 			{elements.length === 0 && <EmptyCanvasHero />}
@@ -2783,17 +3037,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}}
 			>
 				<Layer>
-					{/* Render existing elements */}
-					{elements.map((element) =>
-						renderElement(
-							element,
-							selectedElementIds.has(element.id),
-							activeTool === "selection",
-							false, // not preview
-							handleElementDragEnd,
-							handleJointDrag,
-						),
-					)}
+					{/* Render existing elements (memoised — Phase 6) */}
+					{committedElements}
 
 					{/* Render element being drawn */}
 					{drawingElement &&
@@ -2852,6 +3097,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 									y={element.y}
 									width={element.width}
 									height={element.height}
+									rotation={element.angle}
 									elementId={element.id}
 									zoom={zoom}
 									scrollX={scrollX}

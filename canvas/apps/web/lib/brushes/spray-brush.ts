@@ -48,6 +48,8 @@ const SPRAY_DEFAULTS = {
 	stepDistance: 4,
 	/** Base dot radius */
 	dotRadius: 0.8,
+	/** Hard cap on total dots per stroke to avoid SVG path explosion (Phase 6) */
+	maxDotsPerStroke: 600,
 } as const;
 
 // ============================================================================
@@ -70,6 +72,7 @@ export const SprayBrush: Brush = {
 		const stepDist = SPRAY_DEFAULTS.stepDistance;
 		const dotR = SPRAY_DEFAULTS.dotRadius;
 		const seedId = options.seedId ?? "";
+		const maxDots = SPRAY_DEFAULTS.maxDotsPerStroke;
 
 		// Single point → burst at a single point
 		if (points.length === 1) {
@@ -80,6 +83,7 @@ export const SprayBrush: Brush = {
 		// Walk along the polyline at fixed step intervals
 		let accumDist = 0;
 		let stepIndex = 0;
+		let totalDots = 0;
 		const parts: string[] = [];
 
 		const first = points[0] as BrushPoint;
@@ -94,8 +98,11 @@ export const SprayBrush: Brush = {
 				stepIndex++,
 			),
 		);
+		totalDots += dotsPerStep;
 
 		for (let i = 1; i < points.length; i++) {
+			if (totalDots >= maxDots) break; // Phase 6: hard cap
+
 			const prev = points[i - 1] as BrushPoint;
 			const curr = points[i] as BrushPoint;
 			const d = dist(prev.x, prev.y, curr.x, curr.y);
@@ -104,6 +111,7 @@ export const SprayBrush: Brush = {
 
 			accumDist += d;
 			while (accumDist >= stepDist) {
+				if (totalDots >= maxDots) break; // Phase 6: hard cap
 				accumDist -= stepDist;
 				const t = 1 - accumDist / d;
 				const x = lerp(prev.x, curr.x, t);
@@ -117,6 +125,7 @@ export const SprayBrush: Brush = {
 				parts.push(
 					emitBurst(x, y, radius, adjustedDots, dotR, seedId, stepIndex++),
 				);
+				totalDots += adjustedDots;
 			}
 		}
 

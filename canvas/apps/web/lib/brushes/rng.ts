@@ -4,7 +4,7 @@
  * ============================================================================
  *
  * Deterministic PRNG for brush textures. All brush randomness (spray dots,
- * crayon jitter, watercolour wash noise) MUST use this instead of Math.random()
+ * watercolour wash noise) MUST use this instead of Math.random()
  * so that every client renders the exact same stroke given the same seed.
  *
  * Seed strategy:

@@ -156,12 +156,16 @@ function opsToSvgPath(ops: Array<{ op: string; data: number[] }>): string {
 // ============================================================================
 
 function buildRoughOptions(opts: RoughRenderOptions) {
-	const fillStyle =
-		opts.fillColor === "transparent" || opts.fillStyle === "none"
-			? "solid"
-			: opts.fillStyle === "cross-hatch"
-				? "cross-hatch"
-				: "hachure";
+	// Determine Rough.js fill style.  When the caller explicitly asks for
+	// "solid", we MUST use "solid" — not hachure.
+	let fillStyle: "solid" | "hachure" | "cross-hatch" = "hachure";
+	if (opts.fillColor === "transparent" || opts.fillStyle === "none") {
+		fillStyle = "solid"; // no visible fill — solid is cheapest no-op
+	} else if (opts.fillStyle === "solid") {
+		fillStyle = "solid";
+	} else if (opts.fillStyle === "cross-hatch") {
+		fillStyle = "cross-hatch";
+	}
 
 	return {
 		roughness: opts.sloppiness,

@@ -44,7 +44,7 @@ export interface BrushOptions {
 	};
 	/**
 	 * Stable seed identifier for deterministic brush randomness.
-	 * When provided, brushes that use randomness (spray, crayon, watercolour)
+	 * When provided, brushes that use randomness (spray, watercolour)
 	 * will produce identical output across all clients for the same seed.
 	 * Composed from the stroke's `seedId` property.
 	 */
@@ -58,8 +58,8 @@ export interface BrushOptions {
 /**
  * A single visual pass in a multi-layer brush rendering.
  *
- * Brushes like Watercolour and Crayon compose multiple passes to achieve
- * their characteristic look (wash layers, grain dots etc.).
+ * Brushes like Watercolour compose multiple passes to achieve
+ * their characteristic look (wash layers etc.).
  * Canvas.tsx and GhostLayer.tsx iterate over the layers returned by
  * `Brush.getLayers()` and render each as a separate Konva Path inside
  * a <Group>, preserving zIndex, rotation, and hit-testing.
@@ -122,8 +122,8 @@ export interface Brush {
 	 *
 	 * When defined, Canvas.tsx and GhostLayer.tsx use this instead of
 	 * `generatePath` to render multiple Konva <Path> nodes inside a <Group>.
-	 * This enables multi-pass effects (watercolour washes, crayon grain,
-	 * marker soft edges) without breaking selection, rotation, or zIndex.
+	 * This enables multi-pass effects (watercolour washes, spray patterns)
+	 * without breaking selection, rotation, or zIndex.
 	 *
 	 * @param points  – Ordered stroke points (never mutated).
 	 * @param options – Optional rendering parameters.
@@ -141,24 +141,21 @@ export interface Brush {
 // ============================================================================
 
 /** String-literal union of built-in brush identifiers. */
-export type BrushType =
-	| "pencil"
-	| "spray"
-	| "crayon"
-	| "marker"
-	| "watercolour";
+export type BrushType = "pencil" | "spray" | "watercolour";
 
 /**
  * Backward-compatibility mapper.
  * Normalises any stored / incoming brush-type string to one of the
- * current five built-in types.  Old or unknown identifiers fall back
- * to `"pencil"` so nothing ever crashes or silently disappears.
+ * current built-in types.  Old or unknown identifiers (including
+ * removed "crayon" and "marker") fall back to `"pencil"` so nothing
+ * ever crashes or silently disappears.
  *
  * Mapping:
  *  - "round"        → "pencil"  (closest visual match)
  *  - "calligraphy"  → "pencil"  (no direct replacement)
- *  - "marker"       → "marker"  (kept as-is)
- *  - "pencil" / "spray" / "crayon" / "watercolour" → pass-through
+ *  - "crayon"       → "pencil"  (removed)
+ *  - "marker"       → "pencil"  (removed)
+ *  - "pencil" / "spray" / "watercolour" → pass-through
  *  - anything else  → "pencil"
  */
 export function normalizeBrushType(
@@ -167,12 +164,10 @@ export function normalizeBrushType(
 	switch (input) {
 		case "pencil":
 		case "spray":
-		case "crayon":
-		case "marker":
 		case "watercolour":
 			return input;
 		default:
-			// Covers legacy "round", "calligraphy", and any unknown types
+			// Covers legacy "round", "calligraphy", removed "crayon"/"marker", and any unknown types
 			return "pencil";
 	}
 }

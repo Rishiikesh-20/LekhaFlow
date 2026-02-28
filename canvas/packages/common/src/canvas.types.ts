@@ -262,7 +262,7 @@ export interface FreedrawElement extends ExcalidrawElementBase {
 	/**
 	 * Stable seed for deterministic brush randomness.
 	 * Generated once on stroke creation (pointerdown) and kept immutable.
-	 * Ensures spray dots / crayon jitter / watercolour wash are identical
+	 * Ensures spray dots / watercolour wash are identical
 	 * across local, remote, and ghost preview rendering.
 	 */
 	seedId?: string;

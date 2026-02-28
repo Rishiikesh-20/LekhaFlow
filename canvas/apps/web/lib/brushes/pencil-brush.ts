@@ -143,7 +143,7 @@ function outlineToSvgPath(left: Vec2[], right: Vec2[]): string {
 const PENCIL_DEFAULTS = {
 	size: 4,
 	thinning: 0.3,
-	streamline: 0.3,
+	streamline: 0, // Raw input — no EMA smoothing
 	simulatePressure: true,
 } as const;
 

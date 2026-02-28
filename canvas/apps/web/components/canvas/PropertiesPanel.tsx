@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { useCanvasStore, useSelectedElements } from "../../store/canvas-store";
 
 type StrokeStyle = "solid" | "dashed" | "dotted";
+type FillStyle = "solid" | "hachure" | "cross-hatch" | "none";
 
 const STROKE_COLORS = [
 	{ color: "#1e1e1e", name: "Black" },
@@ -52,13 +53,6 @@ const BRUSH_OPTIONS = [
 		desc: "Scattered dots",
 	},
 	{
-		type: "crayon" as const,
-		label: "Crayon",
-		icon: "🖍",
-		desc: "Rough texture",
-	},
-	{ type: "marker" as const, label: "Marker", icon: "◆", desc: "Chisel tip" },
-	{
 		type: "watercolour" as const,
 		label: "Watercolour",
 		icon: "💧",
@@ -89,6 +83,8 @@ export function PropertiesPanel() {
 		setRoughEnabled,
 		setSloppiness,
 		isReadOnly,
+		currentFillStyle,
+		setFillStyle,
 	} = useCanvasStore();
 
 	// Detect if any selected element is a freedraw so brush controls stay
@@ -214,6 +210,34 @@ export function PropertiesPanel() {
 						/>
 					))}
 				</div>
+
+				{/* Fill Style (solid / hachure / cross-hatch / none) */}
+				{currentRoughEnabled && (
+					<>
+						<SectionLabel>Fill Style</SectionLabel>
+						<div className="flex gap-2 mb-4">
+							{(["solid", "hachure", "cross-hatch", "none"] as FillStyle[]).map(
+								(style) => (
+									<button
+										type="button"
+										key={style}
+										onClick={() => setFillStyle(style)}
+										title={style.charAt(0).toUpperCase() + style.slice(1)}
+										className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center text-xs font-medium transition-all border-none ${
+											currentFillStyle === style
+												? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+												: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+										}`}
+									>
+										{style === "cross-hatch"
+											? "X-Hatch"
+											: style.charAt(0).toUpperCase() + style.slice(1)}
+									</button>
+								),
+							)}
+						</div>
+					</>
+				)}
 
 				{/* Stroke Width */}
 				<SectionLabel>Stroke Width</SectionLabel>
