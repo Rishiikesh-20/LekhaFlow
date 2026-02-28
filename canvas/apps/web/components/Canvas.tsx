@@ -55,7 +55,7 @@ import type {
 } from "@repo/common";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	Arrow,
@@ -143,6 +143,9 @@ function renderElement(
 		opacity: element.opacity / 100,
 		rotation: element.angle,
 		draggable: isDraggable,
+		perfectDrawEnabled: false,
+		shadowForStrokeEnabled: false,
+		listening: isDraggable,
 		onDragEnd: (e: KonvaEventObject<DragEvent>) => {
 			// For shapes with center-based positioning, adjust back to top-left
 			let finalX = e.target.x();
@@ -166,8 +169,8 @@ function renderElement(
 	// Selection glow effect
 	const selectionProps = isSelected
 		? {
-				shadowColor: "#3b82f6", // Blue glow
-				shadowBlur: 15,
+				shadowColor: "#3b82f6",
+				shadowBlur: 10,
 				shadowOpacity: 0.8,
 				shadowEnabled: true,
 			}
@@ -178,11 +181,9 @@ function renderElement(
 	// Enhanced glow for lines/arrows (thicker shadow since lines are thin)
 	const lineSelectionProps = isSelected
 		? {
-				shadowColor: "#3b82f6", // Blue glow
-				shadowBlur: 25,
-				shadowOpacity: 1,
-				shadowOffsetX: 0,
-				shadowOffsetY: 0,
+				shadowColor: "#3b82f6",
+				shadowBlur: 15,
+				shadowOpacity: 0.9,
 				shadowEnabled: true,
 			}
 		: {
@@ -397,6 +398,9 @@ function renderElement(
 						opacity={element.opacity / 100}
 						rotation={element.angle}
 						draggable={isDraggable}
+						perfectDrawEnabled={false}
+						shadowForStrokeEnabled={false}
+						listening={isDraggable}
 						hitStrokeWidth={Math.max(element.strokeWidth, 10)}
 						{...lineSelectionProps}
 						onDragEnd={(e: KonvaEventObject<DragEvent>) => {
@@ -425,6 +429,9 @@ function renderElement(
 					opacity={element.opacity / 100}
 					rotation={element.angle}
 					draggable={isDraggable}
+					perfectDrawEnabled={false}
+					shadowForStrokeEnabled={false}
+					listening={isDraggable}
 					{...selectionProps}
 					onDragEnd={(e: KonvaEventObject<DragEvent>) => {
 						onDragEnd(element.id, e.target.x(), e.target.y());
@@ -707,6 +714,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Ref to track current selection (fixes stale closure in color update effects)
 	const selectedElementIdsRef = useRef<Set<string>>(selectedElementIds);
+
+	// Performance: throttle refs for cursor updates and hit testing
+	const lastCursorUpdateRef = useRef<number>(0);
+	const lastTooltipCheckRef = useRef<number>(0);
 
 	// Container dimensions
 	const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -1639,14 +1650,16 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		(e: KonvaEventObject<MouseEvent>) => {
 			const point = getCanvasPoint(e);
 
-			// Update cursor position for collaboration
+			// Update cursor position for collaboration (throttled to ~30fps)
+			const now = performance.now();
 			const stage = stageRef.current;
 			const pos = stage?.getPointerPosition();
-			if (pos) {
+			if (pos && now - lastCursorUpdateRef.current > 33) {
+				lastCursorUpdateRef.current = now;
 				updateCursor({ x: pos.x, y: pos.y });
 			}
 
-			// Attribution tooltip – detect hovered element (only when idle)
+			// Attribution tooltip – detect hovered element (throttled to ~10fps, only when idle)
 			if (
 				activeTool === "selection" &&
 				!isDrawing &&
@@ -1654,10 +1667,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				!resizingElement &&
 				!rotatingElement
 			) {
-				const el = getElementAtPoint(point, elements);
-				setHoveredElement(el ?? null);
-				if (pos) {
-					setTooltipPos({ x: e.evt.clientX, y: e.evt.clientY });
+				if (now - lastTooltipCheckRef.current > 100) {
+					lastTooltipCheckRef.current = now;
+					const el = getElementAtPoint(point, elements);
+					setHoveredElement(el ?? null);
+					if (pos) {
+						setTooltipPos({ x: e.evt.clientX, y: e.evt.clientY });
+					}
 				}
 			} else {
 				setHoveredElement(null);
@@ -1784,7 +1800,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}
 
 				case "freedraw": {
-					// Add point to freedraw path (persistent)
+					// Add point to freedraw path - skip if too close to last point (perf)
+					const lastPt =
+						freedrawPointsRef.current[freedrawPointsRef.current.length - 1];
+					const ptDist = lastPt
+						? Math.hypot(dx - lastPt[0], dy - lastPt[1])
+						: Infinity;
+					if (ptDist < 2) break; // Skip sub-pixel movements for performance
 					freedrawPointsRef.current.push([dx, dy]);
 
 					setDrawingElement({
@@ -2203,6 +2225,68 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// RENDER
 	// ─────────────────────────────────────────────────────────────────
 
+	// Performance: Viewport culling - skip rendering elements far outside visible area
+	const visibleElements = useMemo(() => {
+		// Skip culling for small canvases where overhead isn't worth it
+		if (elements.length < 50) return elements;
+
+		const vw = dimensions.width || window.innerWidth;
+		const vh = dimensions.height || window.innerHeight;
+		const pad = 500; // generous padding to avoid pop-in at edges
+		const viewLeft = -scrollX / zoom - pad;
+		const viewTop = -scrollY / zoom - pad;
+		const viewRight = (-scrollX + vw) / zoom + pad;
+		const viewBottom = (-scrollY + vh) / zoom + pad;
+
+		return elements.filter((el) => {
+			// Always render selected elements (needed for resize/rotation handles)
+			if (selectedElementIds.has(el.id)) return true;
+
+			// Line-based elements: use origin with extra generous bounds
+			if (el.type === "freedraw" || el.type === "line" || el.type === "arrow") {
+				const extraPad = 2000;
+				return (
+					el.x >= viewLeft - extraPad &&
+					el.x <= viewRight + extraPad &&
+					el.y >= viewTop - extraPad &&
+					el.y <= viewBottom + extraPad
+				);
+			}
+
+			// Shape elements: proper bounding box check
+			const minX = Math.min(el.x, el.x + el.width);
+			const minY = Math.min(el.y, el.y + el.height);
+			const maxX = Math.max(el.x, el.x + el.width);
+			const maxY = Math.max(el.y, el.y + el.height);
+			return (
+				maxX >= viewLeft &&
+				minX <= viewRight &&
+				maxY >= viewTop &&
+				minY <= viewBottom
+			);
+		});
+	}, [
+		elements,
+		scrollX,
+		scrollY,
+		zoom,
+		dimensions.width,
+		dimensions.height,
+		selectedElementIds,
+	]);
+
+	// Performance: Memoize filtered elements for resize/rotation handles
+	const selectedResizableElements = useMemo(() => {
+		if (activeTool !== "selection" || selectedElementIds.size === 0) return [];
+		return elements.filter(
+			(el) =>
+				selectedElementIds.has(el.id) &&
+				el.type !== "line" &&
+				el.type !== "arrow" &&
+				el.type !== "freedraw",
+		);
+	}, [activeTool, elements, selectedElementIds]);
+
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: Context menu handler for canvas area
 		<div
@@ -2275,8 +2359,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}}
 			>
 				<Layer>
-					{/* Render existing elements */}
-					{elements.map((element) =>
+					{/* Render visible elements (viewport-culled for performance) */}
+					{visibleElements.map((element) =>
 						renderElement(
 							element,
 							selectedElementIds.has(element.id),
@@ -2304,56 +2388,38 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					)}
 
 					{/* Render resize handles for selected elements (not lines/arrows) */}
-					{activeTool === "selection" &&
-						elements
-							.filter(
-								(element) =>
-									selectedElementIds.has(element.id) &&
-									element.type !== "line" &&
-									element.type !== "arrow" &&
-									element.type !== "freedraw",
-							)
-							.map((element) => (
-								<ResizeHandles
-									key={`resize-${element.id}`}
-									x={element.x}
-									y={element.y}
-									width={element.width}
-									height={element.height}
-									elementId={element.id}
-									onResizeStart={handleResizeStart}
-									onResizeMove={handleResizeMove}
-									onResizeEnd={handleResizeEnd}
-								/>
-							))}
+					{selectedResizableElements.map((element) => (
+						<ResizeHandles
+							key={`resize-${element.id}`}
+							x={element.x}
+							y={element.y}
+							width={element.width}
+							height={element.height}
+							elementId={element.id}
+							onResizeStart={handleResizeStart}
+							onResizeMove={handleResizeMove}
+							onResizeEnd={handleResizeEnd}
+						/>
+					))}
 
 					{/* Render rotation controls for selected elements */}
-					{activeTool === "selection" &&
-						elements
-							.filter(
-								(element) =>
-									selectedElementIds.has(element.id) &&
-									element.type !== "line" &&
-									element.type !== "arrow" &&
-									element.type !== "freedraw",
-							)
-							.map((element) => (
-								<RotationControls
-									key={`rotate-${element.id}`}
-									x={element.x}
-									y={element.y}
-									width={element.width}
-									height={element.height}
-									elementId={element.id}
-									zoom={zoom}
-									scrollX={scrollX}
-									scrollY={scrollY}
-									onRotate90={handleRotate90}
-									onRotationStart={handleRotationStart}
-									onRotationMove={handleRotationMove}
-									onRotationEnd={handleRotationEnd}
-								/>
-							))}
+					{selectedResizableElements.map((element) => (
+						<RotationControls
+							key={`rotate-${element.id}`}
+							x={element.x}
+							y={element.y}
+							width={element.width}
+							height={element.height}
+							elementId={element.id}
+							zoom={zoom}
+							scrollX={scrollX}
+							scrollY={scrollY}
+							onRotate90={handleRotate90}
+							onRotationStart={handleRotationStart}
+							onRotationMove={handleRotationMove}
+							onRotationEnd={handleRotationEnd}
+						/>
+					))}
 				</Layer>
 
 				{/* Ghost Layer: Remote users' live drawing previews */}
