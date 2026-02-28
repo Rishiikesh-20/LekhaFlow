@@ -28,6 +28,7 @@ import {
 	Text,
 } from "react-konva";
 import type { RemoteGhost } from "../../hooks/useGhostPreviews";
+import { type BrushPoint, getBrush, getCachedPath } from "../../lib/brushes";
 import { outlineToSvgPath } from "../../lib/stroke-utils";
 
 // ============================================================================
@@ -214,7 +215,7 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 		case "freehand": {
 			if (!points || points.length < 4) return null;
 
-			// Convert flat [x,y,x,y,...] to [[x,y],[x,y],...] for perfect-freehand
+			// Convert flat [x,y,x,y,...] to pair array for rendering
 			const pointPairs: Array<[number, number]> = [];
 			for (let i = 0; i < points.length; i += 2) {
 				const px = points[i];
@@ -224,13 +225,32 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 				}
 			}
 
-			const pathData = outlineToSvgPath(pointPairs, {
-				size: strokeWidth * 2,
-				thinning: 0.5,
-				smoothing: 0.5,
-				streamline: 0.5,
-				simulatePressure: true,
-			});
+			// Use brush engine with path caching for performance
+			const brushType = preview.brushType ?? "round";
+			const brush = getBrush(brushType);
+
+			let pathData: string;
+			if (brush) {
+				const brushPoints: BrushPoint[] = pointPairs.map(([bx, by]) => ({
+					x: bx,
+					y: by,
+					pressure: 0.5,
+				}));
+				// Use cached path — ghost previews are recomputed at ~60fps,
+				// caching avoids redundant path generation for identical point sets
+				pathData = getCachedPath(brush, brushPoints, {
+					size: strokeWidth * 2,
+				});
+			} else {
+				// Fallback to perfect-freehand for unknown brush types
+				pathData = outlineToSvgPath(pointPairs, {
+					size: strokeWidth * 2,
+					thinning: 0.5,
+					smoothing: 0.5,
+					streamline: 0.5,
+					simulatePressure: true,
+				});
+			}
 
 			if (!pathData) return null;
 

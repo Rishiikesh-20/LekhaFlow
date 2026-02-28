@@ -59,6 +59,8 @@ export interface GhostPreview {
 	fillColor: string;
 	/** Stroke style */
 	strokeStyle: "solid" | "dashed" | "dotted";
+	/** Brush type for freedraw strokes */
+	brushType?: "round" | "marker" | "calligraphy";
 	/** Client display name */
 	clientName: string;
 	/** Client color tint for ghost differentiation */

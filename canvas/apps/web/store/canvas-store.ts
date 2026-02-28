@@ -148,6 +148,15 @@ interface CanvasState {
 	/** Current opacity (0-100) */
 	currentOpacity: number;
 
+	/** Current brush type for freedraw tool */
+	currentBrushType: "round" | "marker" | "calligraphy";
+
+	/** Whether sketch-style (Rough.js) rendering is enabled for new shapes */
+	currentRoughEnabled: boolean;
+
+	/** Sloppiness of the sketch effect (0 = clean, 3 = very rough) */
+	currentSloppiness: number;
+
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT STATE
 	// ─────────────────────────────────────────────────────────────────
@@ -286,6 +295,15 @@ interface CanvasActions {
 
 	/** Set opacity */
 	setOpacity: (opacity: number) => void;
+
+	/** Set brush type */
+	setBrushType: (brushType: "round" | "marker" | "calligraphy") => void;
+
+	/** Set rough style enabled */
+	setRoughEnabled: (enabled: boolean) => void;
+
+	/** Set sloppiness level */
+	setSloppiness: (sloppiness: number) => void;
 
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT ACTIONS
@@ -426,6 +444,9 @@ export const initialState: CanvasState = {
 	currentStrokeStyle: "solid",
 	currentFillStyle: "solid",
 	currentOpacity: 100,
+	currentBrushType: "round" as const,
+	currentRoughEnabled: false,
+	currentSloppiness: 1,
 
 	// Viewport
 	scrollX: 0,
@@ -549,6 +570,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 		setStrokeStyle: (style) => set({ currentStrokeStyle: style }),
 		setFillStyle: (style) => set({ currentFillStyle: style }),
 		setOpacity: (opacity) => set({ currentOpacity: opacity }),
+		setBrushType: (brushType) => set({ currentBrushType: brushType }),
+		setRoughEnabled: (enabled) => set({ currentRoughEnabled: enabled }),
+		setSloppiness: (sloppiness) =>
+			set({ currentSloppiness: Math.max(0, Math.min(3, sloppiness)) }),
 
 		// ─────────────────────────────────────────────────────────────────
 		// VIEWPORT ACTIONS

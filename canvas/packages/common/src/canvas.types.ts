@@ -127,6 +127,18 @@ export interface ExcalidrawElementBase {
 	/** Seed for consistent rough.js rendering */
 	seed: number;
 
+	/**
+	 * Sketch-style (Rough.js) rendering configuration.
+	 * Applies to non-freehand shapes only (rectangle, ellipse, diamond, line, arrow).
+	 * When enabled, shapes are rendered with a hand-drawn look via Rough.js.
+	 */
+	roughStyle?: {
+		/** Whether sketch rendering is active */
+		enabled: boolean;
+		/** Sloppiness of the hand-drawn effect (0 = clean, 3 = very rough) */
+		sloppiness: number;
+	};
+
 	/** Version number, incremented on each change */
 	version: number;
 
@@ -245,6 +257,8 @@ export interface FreedrawElement extends ExcalidrawElementBase {
 	pressures: number[];
 	/** Smoothing applied */
 	simulatePressure: boolean;
+	/** Brush style used for this stroke */
+	brushType?: "round" | "marker" | "calligraphy";
 }
 
 /**

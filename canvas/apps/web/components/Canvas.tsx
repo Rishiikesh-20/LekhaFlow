@@ -73,6 +73,7 @@ import type { GhostPreview } from "../hooks/useGhostPreviews";
 import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
+import { type BrushPoint, getBrush, getCachedPath } from "../lib/brushes";
 import {
 	createArrow,
 	createFreedraw,
@@ -82,6 +83,14 @@ import {
 	getElementAtPoint,
 	type ShapeModifiers,
 } from "../lib/element-utils";
+import {
+	type RoughRenderOptions,
+	roughArrow,
+	roughDiamond,
+	roughEllipse,
+	roughLine,
+	roughRectangle,
+} from "../lib/rough-renderer";
 import { outlineToSvgPath, simplifyPath } from "../lib/stroke-utils";
 import { supabase } from "../lib/supabase.client";
 import {
@@ -202,7 +211,72 @@ function renderElement(
 	};
 
 	switch (element.type) {
-		case "rectangle":
+		case "rectangle": {
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				const { strokePath, fillPath, fillMode } = roughRectangle(
+					element.width,
+					element.height,
+					roughOpts,
+				);
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + element.width / 2}
+						y={element.y + element.height / 2}
+						offsetX={element.width / 2}
+						offsetY={element.height / 2}
+					>
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
 			return (
 				<Rect
 					key={element.id}
@@ -223,8 +297,75 @@ function renderElement(
 					cornerRadius={element.roundness?.value ?? 0}
 				/>
 			);
+		}
 
-		case "ellipse":
+		case "ellipse": {
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				// Rough.js ellipse is center-based: (0,0) center with full w/h
+				const { strokePath, fillPath, fillMode } = roughEllipse(
+					Math.abs(element.width),
+					Math.abs(element.height),
+					roughOpts,
+				);
+				// Rough ellipse is centered at (0,0), so offset the group such that
+				// (0,0) maps to the center of the element bounding box
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + element.width / 2}
+						y={element.y + element.height / 2}
+					>
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
 			return (
 				<Ellipse
 					key={element.id}
@@ -242,10 +383,85 @@ function renderElement(
 					}
 				/>
 			);
+		}
 
 		case "line": {
 			const lineElement = element as LineElement;
 			const points = lineElement.points.flatMap((p) => [p.x, p.y]);
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: "transparent",
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				const { strokePath } = roughLine(lineElement.points, roughOpts);
+
+				if (isSelected && onJointDrag && !isPreview) {
+					return (
+						<Group key={element.id}>
+							<Path
+								{...commonProps}
+								{...lineSelectionProps}
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+							{lineElement.points.map((point, index) => (
+								<Circle
+									key={`joint-${element.id}-${index}`}
+									x={element.x + point.x}
+									y={element.y + point.y}
+									radius={8}
+									fill="#3b82f6"
+									stroke="#ffffff"
+									strokeWidth={2}
+									draggable={true}
+									onDragMove={(e: KonvaEventObject<DragEvent>) => {
+										const newX = e.target.x() - element.x;
+										const newY = e.target.y() - element.y;
+										onJointDrag(element.id, index, newX, newY);
+									}}
+									style={{ cursor: "move" }}
+								/>
+							))}
+						</Group>
+					);
+				}
+
+				return (
+					<Path
+						key={element.id}
+						{...commonProps}
+						{...lineSelectionProps}
+						data={strokePath}
+						stroke={element.strokeColor}
+						strokeWidth={element.strokeWidth}
+						fill="transparent"
+						dash={
+							isPreview
+								? [10, 5]
+								: element.strokeStyle === "dashed"
+									? [10, 5]
+									: element.strokeStyle === "dotted"
+										? [2, 2]
+										: undefined
+						}
+					/>
+				);
+			}
 
 			// If selected, render with draggable endpoint/joint handles
 			if (isSelected && onJointDrag && !isPreview) {
@@ -304,6 +520,80 @@ function renderElement(
 		case "arrow": {
 			const arrowElement = element as ArrowElement;
 			const points = arrowElement.points.flatMap((p) => [p.x, p.y]);
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: "transparent",
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				const { strokePath } = roughArrow(arrowElement.points, roughOpts);
+
+				if (isSelected && onJointDrag && !isPreview) {
+					return (
+						<Group key={element.id}>
+							<Path
+								{...commonProps}
+								{...lineSelectionProps}
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+							{arrowElement.points.map((point, index) => (
+								<Circle
+									key={`joint-${element.id}-${index}`}
+									x={element.x + point.x}
+									y={element.y + point.y}
+									radius={8}
+									fill="#3b82f6"
+									stroke="#ffffff"
+									strokeWidth={2}
+									draggable={true}
+									onDragMove={(e: KonvaEventObject<DragEvent>) => {
+										const newX = e.target.x() - element.x;
+										const newY = e.target.y() - element.y;
+										onJointDrag(element.id, index, newX, newY);
+									}}
+									style={{ cursor: "move" }}
+								/>
+							))}
+						</Group>
+					);
+				}
+
+				return (
+					<Path
+						key={element.id}
+						{...commonProps}
+						{...lineSelectionProps}
+						data={strokePath}
+						stroke={element.strokeColor}
+						strokeWidth={element.strokeWidth}
+						fill="transparent"
+						dash={
+							isPreview
+								? [10, 5]
+								: element.strokeStyle === "dashed"
+									? [10, 5]
+									: element.strokeStyle === "dotted"
+										? [2, 2]
+										: undefined
+						}
+					/>
+				);
+			}
 
 			// If selected, render with draggable endpoint/joint handles
 			if (isSelected && onJointDrag && !isPreview) {
@@ -406,14 +696,34 @@ function renderElement(
 				);
 			}
 
-			// Solid style: use perfect-freehand for smooth strokes with variable width
-			const pathData = outlineToSvgPath(points, {
-				size: element.strokeWidth * 2,
-				thinning: 0.5,
-				smoothing: 0.5,
-				streamline: 0.5,
-				simulatePressure: true, // Constant width
-			});
+			// Solid style: use brush engine with path caching for performance
+			const brushType = freedrawElement.brushType ?? "round";
+			const brush = getBrush(brushType);
+			let pathData: string;
+
+			if (brush) {
+				// Convert points to BrushPoint format for the brush engine
+				const brushPoints: BrushPoint[] = freedrawElement.points.map(
+					([bx, by, pressure]) => ({
+						x: bx,
+						y: by,
+						pressure: pressure ?? 0.5,
+					}),
+				);
+				// Use cached path to avoid redundant regeneration on re-renders
+				pathData = getCachedPath(brush, brushPoints, {
+					size: element.strokeWidth * 2,
+				});
+			} else {
+				// Fallback to perfect-freehand for unknown brush types
+				pathData = outlineToSvgPath(points, {
+					size: element.strokeWidth * 2,
+					thinning: 0.5,
+					smoothing: 0.5,
+					streamline: 0.5,
+					simulatePressure: true,
+				});
+			}
 			return (
 				<Path
 					key={element.id}
@@ -436,6 +746,74 @@ function renderElement(
 		case "diamond": {
 			const w = element.width;
 			const h = element.height;
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				// roughDiamond generates paths at (0,0) origin with given w/h
+				const { strokePath, fillPath, fillMode } = roughDiamond(
+					w,
+					h,
+					roughOpts,
+				);
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + w / 2}
+						y={element.y + h / 2}
+						offsetX={w / 2}
+						offsetY={h / 2}
+					>
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
+
 			// Center the diamond points around (0,0) so rotation works correctly
 			const diamondPoints = [
 				0,
@@ -560,6 +938,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		currentStrokeWidth,
 		currentStrokeStyle,
 		currentOpacity,
+		currentBrushType,
+		currentRoughEnabled,
+		currentSloppiness,
 		zoom,
 		scrollX,
 		scrollY,
@@ -651,6 +1032,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					(element.backgroundColor as string) || currentBackgroundColor,
 				strokeStyle:
 					(element.strokeStyle as GhostPreview["strokeStyle"]) || "solid",
+				brushType:
+					(element.brushType as GhostPreview["brushType"]) || currentBrushType,
 				clientName: "",
 				clientColor: "",
 			});
@@ -660,6 +1043,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			currentStrokeColor,
 			currentStrokeWidth,
 			currentBackgroundColor,
+			currentBrushType,
 		],
 	);
 
@@ -1531,6 +1915,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							strokeWidth: currentStrokeWidth,
 							strokeStyle: currentStrokeStyle,
 							opacity: currentOpacity,
+							roughStyle: currentRoughEnabled
+								? { enabled: true, sloppiness: currentSloppiness }
+								: undefined,
 						},
 					);
 					setDrawingElement(newShape);
@@ -1544,6 +1931,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeWidth: currentStrokeWidth,
 						strokeStyle: currentStrokeStyle,
 						opacity: currentOpacity,
+						roughStyle: currentRoughEnabled
+							? { enabled: true, sloppiness: currentSloppiness }
+							: undefined,
 					});
 					setDrawingElement(newLine);
 					break;
@@ -1556,6 +1946,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeWidth: currentStrokeWidth,
 						strokeStyle: currentStrokeStyle,
 						opacity: currentOpacity,
+						roughStyle: currentRoughEnabled
+							? { enabled: true, sloppiness: currentSloppiness }
+							: undefined,
 					});
 					setDrawingElement(newArrow);
 					break;
@@ -1568,6 +1961,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeColor: currentStrokeColor,
 						strokeWidth: currentStrokeWidth,
 						opacity: currentOpacity,
+						brushType: currentBrushType,
 					});
 					setDrawingElement(newFreedraw);
 					break;
@@ -1618,6 +2012,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			currentStrokeWidth,
 			currentStrokeStyle,
 			currentOpacity,
+			currentBrushType,
+			currentRoughEnabled,
+			currentSloppiness,
 			shiftPressed,
 			altPressed,
 			deleteElements,

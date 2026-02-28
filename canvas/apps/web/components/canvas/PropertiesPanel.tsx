@@ -38,6 +38,12 @@ const BACKGROUND_COLORS = [
 
 const STROKE_WIDTHS = [1, 2, 4, 6];
 
+const BRUSH_OPTIONS = [
+	{ type: "round" as const, label: "Round", icon: "●" },
+	{ type: "marker" as const, label: "Marker", icon: "◆" },
+	{ type: "calligraphy" as const, label: "Calligraphy", icon: "✒" },
+];
+
 export function PropertiesPanel() {
 	const [isCollapsed, setIsCollapsed] = useState(true);
 	const {
@@ -51,6 +57,13 @@ export function PropertiesPanel() {
 		setStrokeWidth,
 		setStrokeStyle,
 		setOpacity,
+		activeTool,
+		currentBrushType,
+		setBrushType,
+		currentRoughEnabled,
+		currentSloppiness,
+		setRoughEnabled,
+		setSloppiness,
 		isReadOnly,
 	} = useCanvasStore();
 
@@ -87,7 +100,7 @@ export function PropertiesPanel() {
 
 	return (
 		<div className="absolute top-[136px] sm:top-20 right-4 z-50">
-			<div className="glass-card-elevated rounded-2xl w-[232px] p-4 animate-scale-in">
+			<div className="glass-card-elevated rounded-2xl w-[232px] p-4 animate-scale-in max-h-[calc(100vh-160px)] overflow-y-auto">
 				{/* Header */}
 				<div className="flex items-center justify-between mb-4">
 					<div className="flex items-center gap-2">
@@ -234,6 +247,75 @@ export function PropertiesPanel() {
 					onChange={(e) => setOpacity(Number(e.target.value))}
 					className="w-full cursor-pointer"
 				/>
+
+				{/* Brush Style — only visible for freedraw tool */}
+				{activeTool === "freedraw" && (
+					<>
+						<SectionLabel>Brush Style</SectionLabel>
+						<div className="flex gap-2 mb-4">
+							{BRUSH_OPTIONS.map(({ type, label, icon }) => (
+								<button
+									type="button"
+									key={type}
+									onClick={() => setBrushType(type)}
+									title={label}
+									className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center gap-1 transition-all border-none text-[12px] font-medium ${
+										currentBrushType === type
+											? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+											: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+									}`}
+								>
+									<span>{icon}</span>
+									<span className="hidden sm:inline">{label}</span>
+								</button>
+							))}
+						</div>
+					</>
+				)}
+
+				{/* Sketch Style — visible for shape tools (not freedraw/text/select) */}
+				{(activeTool === "rectangle" ||
+					activeTool === "ellipse" ||
+					activeTool === "diamond" ||
+					activeTool === "line" ||
+					activeTool === "arrow") && (
+					<>
+						<SectionLabel>Sketch Style</SectionLabel>
+						<div className="mb-3">
+							<button
+								type="button"
+								onClick={() => setRoughEnabled(!currentRoughEnabled)}
+								className={`w-full h-9 rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-all border-none text-[12px] font-medium ${
+									currentRoughEnabled
+										? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+										: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+								}`}
+							>
+								<span>{currentRoughEnabled ? "✏️" : "📐"}</span>
+								<span>{currentRoughEnabled ? "Hand-drawn" : "Clean"}</span>
+							</button>
+						</div>
+						{currentRoughEnabled && (
+							<>
+								<div className="flex items-center justify-between mb-2">
+									<SectionLabel className="mb-0">Sloppiness</SectionLabel>
+									<span className="text-xs font-bold text-violet-500 tabular-nums">
+										{currentSloppiness.toFixed(1)}
+									</span>
+								</div>
+								<input
+									type="range"
+									min="0"
+									max="3"
+									step="0.1"
+									value={currentSloppiness}
+									onChange={(e) => setSloppiness(Number(e.target.value))}
+									className="w-full cursor-pointer mb-2"
+								/>
+							</>
+						)}
+					</>
+				)}
 			</div>
 		</div>
 	);

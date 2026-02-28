@@ -81,6 +81,7 @@ function createBaseElement(
 		opacity: options.opacity ?? DEFAULT_ELEMENT_PROPS.opacity,
 		roughness: options.roughness ?? DEFAULT_ELEMENT_PROPS.roughness,
 		seed: Math.floor(Math.random() * 2147483647),
+		roughStyle: options.roughStyle ?? undefined,
 		version: 1,
 		versionNonce: Math.floor(Math.random() * 2147483647),
 		isDeleted: false,
@@ -302,6 +303,7 @@ export function createFreedraw(
 		points,
 		pressures: points.map((p) => p[2] ?? 0.5),
 		simulatePressure: true,
+		brushType: options.brushType ?? "round",
 	} as FreedrawElement;
 }
 
