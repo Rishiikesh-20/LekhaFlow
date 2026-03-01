@@ -19,6 +19,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { getPathCacheSize } from "../../lib/brushes/path-cache";
 import { getSprayDebug } from "../../lib/brushes/spray-brush";
+import { getSprayRasterDebug } from "../../lib/brushes/spray-raster";
 import { useCanvasStore, useElementsArray } from "../../store/canvas-store";
 
 // ─── constants ──────────────────────────────────────────────────────────────
@@ -182,7 +183,13 @@ function PerfHUDInner({ freedrawPointCount }: { freedrawPointCount: number }) {
  * Rendered only while spray is actively drawing so getSprayDebug() is fresh.
  */
 function SprayDebugRow() {
-	const { totalDots, densityMode } = getSprayDebug();
+	const svgDebug = getSprayDebug();
+	const rasterDebug = getSprayRasterDebug();
+	// Prefer raster counters during live drawing (rasterDebug.totalDots > 0),
+	// fall back to SVG counters for committed-element re-render.
+	const totalDots = rasterDebug.totalDots || svgDebug.totalDots;
+	const densityMode = svgDebug.densityMode;
+	const frameDots = rasterDebug.lastFrameDots;
 	const modeColor =
 		densityMode === "full"
 			? "text-green-400"
@@ -195,6 +202,12 @@ function SprayDebugRow() {
 				<span className="text-gray-400">spray dots</span>
 				<span className="font-mono tabular-nums text-gray-100">
 					{totalDots}
+				</span>
+			</div>
+			<div className="flex justify-between">
+				<span className="text-gray-400">frame dots</span>
+				<span className="font-mono tabular-nums text-gray-100">
+					{frameDots}
 				</span>
 			</div>
 			<div className="flex justify-between">

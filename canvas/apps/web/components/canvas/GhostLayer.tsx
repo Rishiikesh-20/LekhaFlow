@@ -262,6 +262,8 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 				const brushOpts = {
 					size: strokeWidth * 2,
 					seedId: preview.seedId,
+					streamline: 0,
+					smoothing: 0,
 				};
 				// Use cached layers — ghost previews are recomputed at ~60fps,
 				// caching avoids redundant path generation for identical point sets
@@ -294,16 +296,21 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 					);
 				}
 
-				// Single-layer ghost (pencil, spray): straightforward tinted path
+				// Single-layer ghost: stroke-mode (pencil) or fill-mode (spray)
 				const pathData = getCachedPath(brush, brushPoints, brushOpts);
 				if (!pathData) return null;
+				const isStrokeMode = brush.renderMode === "stroke";
 				return (
 					<Group>
 						<Path
 							x={x}
 							y={y}
 							data={pathData}
-							fill={ghostStroke}
+							fill={isStrokeMode ? undefined : ghostStroke}
+							stroke={isStrokeMode ? ghostStroke : undefined}
+							strokeWidth={isStrokeMode ? strokeWidth : undefined}
+							lineCap={isStrokeMode ? "round" : undefined}
+							lineJoin={isStrokeMode ? "miter" : undefined}
 							opacity={ghostAlpha}
 							listening={false}
 							perfectDrawEnabled={false}
@@ -313,12 +320,12 @@ const GhostShape = memo(({ ghost }: { ghost: RemoteGhost }) => {
 				);
 			}
 
-			// Fallback to perfect-freehand for unknown brush types
+			// Fallback to perfect-freehand for unknown brush types — raw, no smoothing
 			const pathData = outlineToSvgPath(pointPairs, {
 				size: strokeWidth * 2,
 				thinning: 0.5,
-				smoothing: 0.5,
-				streamline: 0.5,
+				smoothing: 0,
+				streamline: 0,
 				simulatePressure: true,
 			});
 			if (!pathData) return null;

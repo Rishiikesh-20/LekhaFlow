@@ -22,6 +22,7 @@
 import type { CanvasElement } from "@repo/common";
 import { memo } from "react";
 import { getSprayDebug } from "../../lib/brushes/spray-brush";
+import { getSprayRasterDebug } from "../../lib/brushes/spray-raster";
 import {
 	useCanvasStore,
 	useElementsArray,
@@ -192,11 +193,14 @@ function DebugOverlayInner({
 
 /** Spray debug sub-section — mirrors PerfHUD's SprayDebugRow. */
 function SprayDebugSection() {
-	const { totalDots, densityMode } = getSprayDebug();
+	const svgDebug = getSprayDebug();
+	const rasterDebug = getSprayRasterDebug();
+	const totalDots = rasterDebug.totalDots || svgDebug.totalDots;
 	return (
 		<>
 			<Row label="dots" value={totalDots} />
-			<Row label="density" value={densityMode} />
+			<Row label="frame dots" value={rasterDebug.lastFrameDots} />
+			<Row label="density" value={svgDebug.densityMode} />
 		</>
 	);
 }

@@ -62,6 +62,7 @@ import {
 	Circle,
 	Ellipse,
 	Group,
+	Image as KonvaImage,
 	Layer,
 	Line,
 	Path,
@@ -80,6 +81,10 @@ import {
 	getCachedPath,
 	normalizeBrushType,
 } from "../lib/brushes";
+import {
+	SprayRasterEngine,
+	setActiveSprayEngine,
+} from "../lib/brushes/spray-raster";
 import {
 	createArrow,
 	createFreedraw,
@@ -783,8 +788,9 @@ function renderElement(
 						</Group>
 					);
 				}
-				// Single-layer brush (pencil, spray): use direct cached path
+				// Single-layer brush: use direct cached path
 				const pathData = getCachedPath(brush, brushPoints, brushOpts);
+				const isStrokeMode = brush.renderMode === "stroke";
 				return (
 					<Path
 						key={element.id}
@@ -792,10 +798,17 @@ function renderElement(
 						x={element.x}
 						y={element.y}
 						data={pathData}
-						fill={element.strokeColor}
+						fill={isStrokeMode ? undefined : element.strokeColor}
+						stroke={isStrokeMode ? element.strokeColor : undefined}
+						strokeWidth={isStrokeMode ? element.strokeWidth : undefined}
+						lineCap={isStrokeMode ? "round" : undefined}
+						lineJoin={isStrokeMode ? "miter" : undefined}
 						opacity={element.opacity / 100}
 						rotation={element.angle}
 						draggable={isDraggable}
+						hitStrokeWidth={
+							isStrokeMode ? Math.max(element.strokeWidth, 10) : undefined
+						}
 						{...selectionProps}
 						onDragEnd={(e: KonvaEventObject<DragEvent>) => {
 							onDragEnd(element.id, e.target.x(), e.target.y());
@@ -1218,6 +1231,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// rAF batching for freedraw updates (Phase 5 — performance)
 	const freedrawRafRef = useRef<number>(0);
 	const freedrawDirtyRef = useRef(false);
+
+	// Spray raster engine: offscreen canvas accumulator for live spray drawing.
+	// Dots are stamped incrementally; Konva renders a single Image node.
+	const sprayRasterRef = useRef<SprayRasterEngine | null>(null);
+	const sprayImageRef = useRef<Konva.Image | null>(null);
+	const sprayGhostThrottleRef = useRef(0);
 
 	// Per-tool settings save/restore: remember freedraw appearance when
 	// switching away so it isn't overwritten by the selection-sync effect.
@@ -2288,6 +2307,22 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						brushType: currentBrushType,
 					});
 					setDrawingElement(newFreedraw);
+
+					// Spray: create offscreen raster engine for real-time stamping
+					if (currentBrushType === "spray") {
+						const w = (dimensions.width || window.innerWidth) * 2;
+						const h = (dimensions.height || window.innerHeight) * 2;
+						sprayRasterRef.current = new SprayRasterEngine({
+							width: w,
+							height: h,
+							size: currentStrokeWidth * 2,
+							color: currentStrokeColor,
+							seedId: newFreedraw.seedId ?? "spray",
+						});
+						sprayRasterRef.current.addPoint(0, 0);
+						sprayGhostThrottleRef.current = 0;
+						setActiveSprayEngine(sprayRasterRef.current);
+					}
 					break;
 				}
 
@@ -2346,6 +2381,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			isDrawing,
 			drawingElement,
 			isReadOnly,
+			dimensions.width,
+			dimensions.height,
 		],
 	);
 
@@ -2509,6 +2546,34 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					// Add point to ref immediately (zero allocation on hot path)
 					freedrawPointsRef.current.push([dx, dy]);
 
+					// ── Spray uses offscreen raster engine ──
+					if (sprayRasterRef.current) {
+						// Stamp dots to offscreen canvas (O(newDots), very cheap)
+						sprayRasterRef.current.addPoint(dx, dy);
+
+						// rAF-batched: ask Konva to re-blit the Image node.
+						// NO React state update needed — just a Konva layer redraw.
+						if (!freedrawDirtyRef.current) {
+							freedrawDirtyRef.current = true;
+							freedrawRafRef.current = requestAnimationFrame(() => {
+								freedrawDirtyRef.current = false;
+								sprayImageRef.current?.getLayer()?.batchDraw();
+
+								// Throttled ghost broadcast for spray (~5 Hz)
+								const now = performance.now();
+								if (now - sprayGhostThrottleRef.current > 200) {
+									sprayGhostThrottleRef.current = now;
+									broadcastDrawingPreview({
+										...drawingElement,
+										points: freedrawPointsRef.current,
+									});
+								}
+							});
+						}
+						break;
+					}
+
+					// ── Non-spray (pencil / watercolour) ──
 					// rAF-batched render: schedule a single state update per frame
 					// instead of re-rendering the entire scene on every pointermove.
 					if (!freedrawDirtyRef.current) {
@@ -2631,6 +2696,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setDrawingElement(null);
 		setInteractionStartPoint(null);
 		freedrawPointsRef.current = [];
+
+		// Dispose spray raster engine (if active)
+		if (sprayRasterRef.current) {
+			setActiveSprayEngine(null);
+			sprayRasterRef.current.dispose();
+			sprayRasterRef.current = null;
+		}
 
 		// Clear eraser state
 		isErasingRef.current = false;
@@ -3079,7 +3151,21 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 					{/* Render element being drawn */}
 					{drawingElement &&
-						renderElement(drawingElement, false, false, true, () => {})}
+						(sprayRasterRef.current ? (
+							// Spray live preview: single Konva.Image blitting the offscreen canvas
+							<KonvaImage
+								ref={(node) => {
+									sprayImageRef.current = node;
+								}}
+								image={sprayRasterRef.current.canvas}
+								x={drawingElement.x - sprayRasterRef.current.originX}
+								y={drawingElement.y - sprayRasterRef.current.originY}
+								opacity={(drawingElement.opacity ?? 100) / 100}
+								listening={false}
+							/>
+						) : (
+							renderElement(drawingElement, false, false, true, () => {})
+						))}
 
 					{/* Render laser path (temporary) */}
 					{laserPath && activeTool === "laser" && interactionStartPoint && (

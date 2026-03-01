@@ -106,6 +106,16 @@ export interface Brush {
 	readonly displayName: string;
 
 	/**
+	 * How the generated path should be rendered.
+	 *
+	 * - `"fill"` (default): Render as a filled SVG shape (closed path).
+	 * - `"stroke"`: Render as a stroked open polyline — the path is displayed
+	 *   with Konva `stroke` + `strokeWidth` props instead of `fill`.
+	 *   Use this for brushes that produce raw / unprocessed polylines.
+	 */
+	readonly renderMode?: "fill" | "stroke";
+
+	/**
 	 * Generate an SVG `<path d="…">` data string from ordered points.
 	 *
 	 * @param points  – Ordered stroke points (never mutated).
