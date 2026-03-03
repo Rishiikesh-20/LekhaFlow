@@ -17,7 +17,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-			(parsedData.error.issues[0]?.message ?? "Invalid input"),
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
@@ -48,7 +48,7 @@ export const updateCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-			(parsedData.error.issues[0]?.message ?? "Invalid input"),
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
