@@ -18,7 +18,7 @@ const generateSlug = (name: string): string => {
 export const createCanvasService = async (
 	params: CreateCanvasType & { userId: string },
 ): Promise<Tables<"canvases">> => {
-	const { name, isPublic, userId } = params;
+	const { name, isPublic, folderId, userId } = params;
 
 	const slug = generateSlug(name);
 	const { data, error } = await createServiceClient()
@@ -29,6 +29,7 @@ export const createCanvasService = async (
 			owner_id: userId,
 			is_public: isPublic,
 			data: null,
+			folder_id: folderId ?? null,
 		})
 		.select()
 		.single();

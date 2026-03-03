@@ -1,12 +1,12 @@
 import type { Router as RouterType } from "express";
 import { Router } from "express";
 import {
-    createFolder,
-    deleteFolder,
-    getFolderBreadcrumb,
-    getFolderContents,
-    moveCanvas,
-    moveFolder,
+	createFolder,
+	deleteFolder,
+	getFolderBreadcrumb,
+	getFolderContents,
+	moveCanvas,
+	moveFolder,
 } from "../controller/folder";
 import { authMiddleware } from "../middleware/auth";
 
