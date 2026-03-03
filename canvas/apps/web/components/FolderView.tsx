@@ -422,7 +422,6 @@ export function FolderView() {
 						}}
 						placeholder="Folder name..."
 						className="flex-1 bg-white border border-violet-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-violet-400"
-						autoFocus
 					/>
 					<Button
 						size="sm"
