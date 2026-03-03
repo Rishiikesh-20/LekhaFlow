@@ -17,12 +17,12 @@ export const createCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+			(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
 
-	const { name, isPublic } = parsedData.data;
+	const { name, isPublic, folderId } = parsedData.data;
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -31,6 +31,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 	const newCanvas = await createCanvasService({
 		name,
 		isPublic,
+		folderId,
 		userId,
 	});
 
@@ -47,7 +48,7 @@ export const updateCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+			(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
