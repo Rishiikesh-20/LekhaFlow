@@ -3283,24 +3283,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						/>
 					))}
 
-					{/* Render rotation controls for selected elements */}
-					{selectedResizableElements.map((element) => (
-						<RotationControls
-							key={`rotate-${element.id}`}
-							x={element.x}
-							y={element.y}
-							width={element.width}
-							height={element.height}
-							elementId={element.id}
-							zoom={zoom}
-							scrollX={scrollX}
-							scrollY={scrollY}
-							onRotate90={handleRotate90}
-							onRotationStart={handleRotationStart}
-							onRotationMove={handleRotationMove}
-							onRotationEnd={handleRotationEnd}
-						/>
-					))}
 					{activeTool === "selection" &&
 						elements
 							.filter(
