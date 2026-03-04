@@ -55,13 +55,14 @@ import type {
 } from "@repo/common";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	Arrow,
 	Circle,
 	Ellipse,
 	Group,
+	Image as KonvaImage,
 	Layer,
 	Line,
 	Path,
@@ -74,15 +75,36 @@ import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
 import {
+	type BrushPoint,
+	getBrush,
+	getCachedLayers,
+	getCachedPath,
+	normalizeBrushType,
+} from "../lib/brushes";
+import {
+	SprayRasterEngine,
+	setActiveSprayEngine,
+} from "../lib/brushes/spray-raster";
+import {
 	createArrow,
 	createFreedraw,
 	createLine,
 	createShape,
 	createText,
+	getAllElementsAtPoint,
 	getElementAtPoint,
 	type ShapeModifiers,
 } from "../lib/element-utils";
-import { outlineToSvgPath, simplifyPath } from "../lib/stroke-utils";
+import { importSceneFromFile } from "../lib/import-scene";
+import {
+	type RoughRenderOptions,
+	roughArrow,
+	roughDiamond,
+	roughEllipse,
+	roughLine,
+	roughRectangle,
+} from "../lib/rough-renderer";
+import { outlineToSvgPath } from "../lib/stroke-utils";
 import { supabase } from "../lib/supabase.client";
 import {
 	useCanvasStore,
@@ -94,10 +116,12 @@ import { AttributionTooltip } from "./canvas/AttributionTooltip";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
+import { DebugOverlay } from "./canvas/DebugOverlay";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
 import { HeaderLeft, HeaderRight } from "./canvas/Header";
+import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RotationControls } from "./canvas/RotationControls";
@@ -202,7 +226,81 @@ function renderElement(
 	};
 
 	switch (element.type) {
-		case "rectangle":
+		case "rectangle": {
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+					fillStyle: element.fillStyle,
+				};
+				const { strokePath, fillPath, fillMode } = roughRectangle(
+					element.width,
+					element.height,
+					roughOpts,
+				);
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + element.width / 2}
+						y={element.y + element.height / 2}
+						offsetX={element.width / 2}
+						offsetY={element.height / 2}
+					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect
+							x={0}
+							y={0}
+							width={element.width}
+							height={element.height}
+							fill="transparent"
+						/>
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
 			return (
 				<Rect
 					key={element.id}
@@ -217,14 +315,90 @@ function renderElement(
 					offsetY={element.height / 2}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 					cornerRadius={element.roundness?.value ?? 0}
 				/>
 			);
+		}
 
-		case "ellipse":
+		case "ellipse": {
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+					fillStyle: element.fillStyle,
+				};
+				// Rough.js ellipse is center-based: (0,0) center with full w/h
+				const { strokePath, fillPath, fillMode } = roughEllipse(
+					Math.abs(element.width),
+					Math.abs(element.height),
+					roughOpts,
+				);
+				// Rough ellipse is centered at (0,0), so offset the group such that
+				// (0,0) maps to the center of the element bounding box
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + element.width / 2}
+						y={element.y + element.height / 2}
+					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect
+							x={-Math.abs(element.width) / 2}
+							y={-Math.abs(element.height) / 2}
+							width={Math.abs(element.width)}
+							height={Math.abs(element.height)}
+							fill="transparent"
+						/>
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
 			return (
 				<Ellipse
 					key={element.id}
@@ -237,15 +411,90 @@ function renderElement(
 					radiusY={Math.abs(element.height) / 2}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 				/>
 			);
+		}
 
 		case "line": {
 			const lineElement = element as LineElement;
 			const points = lineElement.points.flatMap((p) => [p.x, p.y]);
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: "transparent",
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				const { strokePath } = roughLine(lineElement.points, roughOpts);
+
+				if (isSelected && onJointDrag && !isPreview) {
+					return (
+						<Group key={element.id}>
+							<Path
+								{...commonProps}
+								{...lineSelectionProps}
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+							{lineElement.points.map((point, index) => (
+								<Circle
+									key={`joint-${element.id}-${index}`}
+									x={element.x + point.x}
+									y={element.y + point.y}
+									radius={8}
+									fill="#3b82f6"
+									stroke="#ffffff"
+									strokeWidth={2}
+									draggable={true}
+									onDragMove={(e: KonvaEventObject<DragEvent>) => {
+										const newX = e.target.x() - element.x;
+										const newY = e.target.y() - element.y;
+										onJointDrag(element.id, index, newX, newY);
+									}}
+									style={{ cursor: "move" }}
+								/>
+							))}
+						</Group>
+					);
+				}
+
+				return (
+					<Path
+						key={element.id}
+						{...commonProps}
+						{...lineSelectionProps}
+						data={strokePath}
+						stroke={element.strokeColor}
+						strokeWidth={element.strokeWidth}
+						fill="transparent"
+						dash={
+							isPreview
+								? [10, 5]
+								: element.strokeStyle === "dashed"
+									? [10, 5]
+									: element.strokeStyle === "dotted"
+										? [2, 2]
+										: undefined
+						}
+					/>
+				);
+			}
 
 			// If selected, render with draggable endpoint/joint handles
 			if (isSelected && onJointDrag && !isPreview) {
@@ -304,6 +553,80 @@ function renderElement(
 		case "arrow": {
 			const arrowElement = element as ArrowElement;
 			const points = arrowElement.points.flatMap((p) => [p.x, p.y]);
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: "transparent",
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+				};
+				const { strokePath } = roughArrow(arrowElement.points, roughOpts);
+
+				if (isSelected && onJointDrag && !isPreview) {
+					return (
+						<Group key={element.id}>
+							<Path
+								{...commonProps}
+								{...lineSelectionProps}
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+							{arrowElement.points.map((point, index) => (
+								<Circle
+									key={`joint-${element.id}-${index}`}
+									x={element.x + point.x}
+									y={element.y + point.y}
+									radius={8}
+									fill="#3b82f6"
+									stroke="#ffffff"
+									strokeWidth={2}
+									draggable={true}
+									onDragMove={(e: KonvaEventObject<DragEvent>) => {
+										const newX = e.target.x() - element.x;
+										const newY = e.target.y() - element.y;
+										onJointDrag(element.id, index, newX, newY);
+									}}
+									style={{ cursor: "move" }}
+								/>
+							))}
+						</Group>
+					);
+				}
+
+				return (
+					<Path
+						key={element.id}
+						{...commonProps}
+						{...lineSelectionProps}
+						data={strokePath}
+						stroke={element.strokeColor}
+						strokeWidth={element.strokeWidth}
+						fill="transparent"
+						dash={
+							isPreview
+								? [10, 5]
+								: element.strokeStyle === "dashed"
+									? [10, 5]
+									: element.strokeStyle === "dotted"
+										? [2, 2]
+										: undefined
+						}
+					/>
+				);
+			}
 
 			// If selected, render with draggable endpoint/joint handles
 			if (isSelected && onJointDrag && !isPreview) {
@@ -406,13 +729,94 @@ function renderElement(
 				);
 			}
 
-			// Solid style: use perfect-freehand for smooth strokes with variable width
+			// Solid style: use brush engine with path caching for performance
+			const brushType = normalizeBrushType(freedrawElement.brushType);
+			const brush = getBrush(brushType);
+
+			if (brush) {
+				// Convert points to BrushPoint format for the brush engine
+				const brushPoints: BrushPoint[] = freedrawElement.points.map(
+					([bx, by, pressure]) => ({
+						x: bx,
+						y: by,
+						pressure: pressure ?? 0.5,
+					}),
+				);
+				const brushOpts = {
+					size: element.strokeWidth * 2,
+					seedId: freedrawElement.seedId,
+					streamline: 0,
+					smoothing: 0,
+				};
+				const layers = getCachedLayers(brush, brushPoints, brushOpts);
+				if (layers.length > 1) {
+					// Multi-pass brush (watercolour): render layered Group
+					return (
+						<Group
+							key={element.id}
+							id={element.id}
+							x={element.x}
+							y={element.y}
+							opacity={element.opacity / 100}
+							rotation={element.angle}
+							draggable={isDraggable}
+							{...selectionProps}
+							onDragEnd={(e: KonvaEventObject<DragEvent>) => {
+								onDragEnd(element.id, e.target.x(), e.target.y());
+							}}
+						>
+							{layers.map((layer, idx) => (
+								<Path
+									key={`layer-${idx}`}
+									data={layer.path}
+									fill={element.strokeColor}
+									opacity={layer.opacity}
+									shadowBlur={layer.shadowBlur ?? 0}
+									shadowColor={element.strokeColor}
+									shadowEnabled={!!layer.shadowBlur}
+									shadowOpacity={0.6}
+									listening={!layer.noHit}
+								/>
+							))}
+						</Group>
+					);
+				}
+				// Single-layer brush: use direct cached path
+				const pathData = getCachedPath(brush, brushPoints, brushOpts);
+				const isStrokeMode = brush.renderMode === "stroke";
+				return (
+					<Path
+						key={element.id}
+						id={element.id}
+						x={element.x}
+						y={element.y}
+						data={pathData}
+						fill={isStrokeMode ? undefined : element.strokeColor}
+						stroke={isStrokeMode ? element.strokeColor : undefined}
+						strokeWidth={isStrokeMode ? element.strokeWidth : undefined}
+						lineCap={isStrokeMode ? "round" : undefined}
+						lineJoin={isStrokeMode ? "miter" : undefined}
+						opacity={element.opacity / 100}
+						rotation={element.angle}
+						draggable={isDraggable}
+						hitStrokeWidth={
+							isStrokeMode ? Math.max(element.strokeWidth, 10) : undefined
+						}
+						{...selectionProps}
+						onDragEnd={(e: KonvaEventObject<DragEvent>) => {
+							onDragEnd(element.id, e.target.x(), e.target.y());
+						}}
+					/>
+				);
+			}
+
+			// Fallback to perfect-freehand for unknown brush types — raw input, no smoothing
 			const pathData = outlineToSvgPath(points, {
 				size: element.strokeWidth * 2,
 				thinning: 0.5,
-				smoothing: 0.5,
-				streamline: 0.5,
-				simulatePressure: true, // Constant width
+				smoothing: 0,
+				streamline: 0,
+				simulatePressure: true,
 			});
 			return (
 				<Path
@@ -436,6 +840,77 @@ function renderElement(
 		case "diamond": {
 			const w = element.width;
 			const h = element.height;
+
+			if (element.roughStyle?.enabled) {
+				const roughOpts: RoughRenderOptions = {
+					strokeColor: element.strokeColor,
+					strokeWidth: element.strokeWidth,
+					fillColor: element.backgroundColor,
+					sloppiness: element.roughStyle.sloppiness,
+					seed: element.seed,
+					fillStyle: element.fillStyle,
+				};
+				// roughDiamond generates paths at (0,0) origin with given w/h
+				const { strokePath, fillPath, fillMode } = roughDiamond(
+					w,
+					h,
+					roughOpts,
+				);
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + w / 2}
+						y={element.y + h / 2}
+						offsetX={w / 2}
+						offsetY={h / 2}
+					>
+						{/* Invisible hit rect — makes entire interior clickable for selection & drag */}
+						<Rect x={0} y={0} width={w} height={h} fill="transparent" />
+						{fillPath && fillMode === "fill" && (
+							<Path
+								data={fillPath}
+								fill={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+							/>
+						)}
+						{fillPath && fillMode === "stroke" && (
+							<Path
+								data={fillPath}
+								stroke={
+									element.backgroundColor === "transparent"
+										? undefined
+										: element.backgroundColor
+								}
+								strokeWidth={roughOpts.strokeWidth * 0.5}
+								fill="transparent"
+							/>
+						)}
+						{strokePath && (
+							<Path
+								data={strokePath}
+								stroke={element.strokeColor}
+								strokeWidth={element.strokeWidth}
+								fill="transparent"
+								dash={
+									isPreview
+										? [10, 5]
+										: element.strokeStyle === "dashed"
+											? [10, 5]
+											: element.strokeStyle === "dotted"
+												? [2, 2]
+												: undefined
+								}
+							/>
+						)}
+					</Group>
+				);
+			}
+
 			// Center the diamond points around (0,0) so rotation works correctly
 			const diamondPoints = [
 				0,
@@ -461,7 +936,7 @@ function renderElement(
 					hitStrokeWidth={Math.max(element.strokeWidth, 10)}
 					fill={
 						element.backgroundColor === "transparent"
-							? undefined
+							? "transparent"
 							: element.backgroundColor
 					}
 				/>
@@ -560,6 +1035,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		currentStrokeWidth,
 		currentStrokeStyle,
 		currentOpacity,
+		currentFillStyle,
+		currentBrushType,
+		currentRoughEnabled,
+		currentSloppiness,
 		zoom,
 		scrollX,
 		scrollY,
@@ -574,6 +1053,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		isSynced,
 		isReadOnly,
 		setReadOnly,
+		setStrokeColor,
+		setStrokeWidth,
+		setOpacity,
+		setBrushType,
 	} = useCanvasStore();
 
 	// Elements and collaborators from store
@@ -647,10 +1130,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				points: flatPoints,
 				strokeColor: (element.strokeColor as string) || currentStrokeColor,
 				strokeWidth: (element.strokeWidth as number) || currentStrokeWidth,
+				opacity: (element.opacity as number) ?? currentOpacity,
 				fillColor:
 					(element.backgroundColor as string) || currentBackgroundColor,
 				strokeStyle:
 					(element.strokeStyle as GhostPreview["strokeStyle"]) || "solid",
+				brushType:
+					(element.brushType as GhostPreview["brushType"]) || currentBrushType,
+				seedId: (element.seedId as string) || undefined,
 				clientName: "",
 				clientColor: "",
 			});
@@ -659,7 +1146,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			broadcastGhost,
 			currentStrokeColor,
 			currentStrokeWidth,
+			currentOpacity,
 			currentBackgroundColor,
+			currentBrushType,
 		],
 	);
 
@@ -668,6 +1157,41 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	useEffect(() => {
 		clearGhost();
 	}, [activeTool, clearGhost]);
+
+	// Per-tool settings save / restore (Phase 5).
+	// When leaving freedraw, snapshot current brush settings into a ref.
+	// When returning to freedraw, restore them so selection-sync doesn't
+	// permanently overwrite the user's chosen drawing settings.
+	const prevActiveToolRef = useRef(activeTool);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: setters are stable; only activeTool should trigger this effect
+	useEffect(() => {
+		const prev = prevActiveToolRef.current;
+		prevActiveToolRef.current = activeTool;
+		if (prev === activeTool) return;
+
+		const s = useCanvasStore.getState();
+
+		// Leaving freedraw → save
+		if (prev === "freedraw") {
+			savedFreedrawSettingsRef.current = {
+				strokeColor: s.currentStrokeColor,
+				strokeWidth: s.currentStrokeWidth,
+				opacity: s.currentOpacity,
+				brushType: s.currentBrushType,
+			};
+		}
+
+		// Entering freedraw → restore
+		if (activeTool === "freedraw" && savedFreedrawSettingsRef.current) {
+			const saved = savedFreedrawSettingsRef.current;
+			if (s.currentStrokeColor !== saved.strokeColor)
+				setStrokeColor(saved.strokeColor);
+			if (s.currentStrokeWidth !== saved.strokeWidth)
+				setStrokeWidth(saved.strokeWidth);
+			if (s.currentOpacity !== saved.opacity) setOpacity(saved.opacity);
+			if (s.currentBrushType !== saved.brushType) setBrushType(saved.brushType);
+		}
+	}, [activeTool]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// LOCAL STATE for drawing
@@ -696,6 +1220,25 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Freedraw points accumulator (persistent strokes)
 	const freedrawPointsRef = useRef<Array<[number, number]>>([]);
+
+	// rAF batching for freedraw updates (Phase 5 — performance)
+	const freedrawRafRef = useRef<number>(0);
+	const freedrawDirtyRef = useRef(false);
+
+	// Spray raster engine: offscreen canvas accumulator for live spray drawing.
+	// Dots are stamped incrementally; Konva renders a single Image node.
+	const sprayRasterRef = useRef<SprayRasterEngine | null>(null);
+	const sprayImageRef = useRef<Konva.Image | null>(null);
+	const sprayGhostThrottleRef = useRef(0);
+
+	// Per-tool settings save/restore: remember freedraw appearance when
+	// switching away so it isn't overwritten by the selection-sync effect.
+	const savedFreedrawSettingsRef = useRef<{
+		strokeColor: string;
+		strokeWidth: number;
+		opacity: number;
+		brushType: "pencil" | "spray" | "watercolour";
+	} | null>(null);
 
 	// Laser points accumulator (temporary pointer)
 	const laserPointsRef = useRef<Array<[number, number]>>([]);
@@ -753,6 +1296,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		originalAngle: number;
 	} | null>(null);
 
+	// rAF-batched rotation: store pending angle in a ref, flush via rAF
+	const pendingRotationRef = useRef<{
+		id: string;
+		angle: number;
+	} | null>(null);
+	const rotationRafRef = useRef<number | null>(null);
+
 	// Export modal state
 	const [showExportModal, setShowExportModal] = useState(false);
 	const [exportFormat, setExportFormat] = useState<"png" | "svg" | "json">(
@@ -764,6 +1314,33 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setExportFormat(format);
 		setShowExportModal(true);
 	}, []);
+
+	// ─────────────────────────────────────────────────────────────────
+	// DEBUG + PERF OVERLAYS  (Phase 0)
+	// ─────────────────────────────────────────────────────────────────
+
+	const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+	const [showPerfHUD, setShowPerfHUD] = useState(false);
+
+	/** Live freedraw point count (cheap — just reads ref length). */
+	const freedrawPointCount = freedrawPointsRef.current.length;
+
+	// Import JSON scene
+	const handleImportScene = useCallback(() => {
+		const nextZ =
+			elements.length === 0
+				? 1
+				: Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
+
+		importSceneFromFile(addElement, nextZ).then((result) => {
+			if (result.success) {
+				console.log(`[LekhaFlow] Imported ${result.importedCount} elements`);
+			} else if (result.error && result.error !== "Cancelled") {
+				console.error(`[LekhaFlow] Import failed: ${result.error}`);
+				window.alert(`Import failed: ${result.error}`);
+			}
+		});
+	}, [elements, addElement]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// AUTO-CAPTURE THUMBNAIL for dashboard preview
@@ -863,6 +1440,34 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		return () => window.removeEventListener("resize", updateDimensions);
 	}, []);
 
+	// Pointer capture — ensures stroke events continue even when the
+	// pointer temporarily leaves the canvas boundary during a drag.
+	useEffect(() => {
+		const stage = stageRef.current;
+		if (!stage) return;
+		const content = stage.content; // Konva's inner <div> housing the canvases
+		if (!content) return;
+
+		const onPointerDown = (e: PointerEvent) => {
+			content.setPointerCapture(e.pointerId);
+		};
+		const onPointerUp = (e: PointerEvent) => {
+			if (content.hasPointerCapture(e.pointerId)) {
+				content.releasePointerCapture(e.pointerId);
+			}
+		};
+
+		content.addEventListener("pointerdown", onPointerDown);
+		content.addEventListener("pointerup", onPointerUp);
+		content.addEventListener("pointercancel", onPointerUp);
+
+		return () => {
+			content.removeEventListener("pointerdown", onPointerDown);
+			content.removeEventListener("pointerup", onPointerUp);
+			content.removeEventListener("pointercancel", onPointerUp);
+		};
+	}, []);
+
 	// Update selection awareness when selection changes
 	useEffect(() => {
 		updateSelection(Array.from(selectedElementIds));
@@ -914,6 +1519,66 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(id, { opacity: currentOpacity });
 		});
 	}, [currentOpacity, updateElement]);
+
+	// Update selected elements when fill style changes (Phase 3)
+	useEffect(() => {
+		const currentSelection = selectedElementIdsRef.current;
+		if (currentSelection.size === 0) return;
+		Array.from(currentSelection).forEach((id) => {
+			updateElement(id, { fillStyle: currentFillStyle });
+		});
+	}, [currentFillStyle, updateElement]);
+
+	// Mirror a Map of elements by id for cheap O(1) lookups in effects and callbacks
+	const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
+	useEffect(() => {
+		elementsMapRef.current = new Map(elements.map((e) => [e.id, e]));
+	}, [elements]);
+
+	// Sync selected freedraw element's appearance back to the panel tools so
+	// PropertiesPanel reflects the element's actual values on selection.
+	// Only runs in selection mode — skipped in freedraw to avoid overwriting
+	// the user's per-tool settings that are restored on tool switch (Phase 5).
+	// Guards prevent unnecessary store writes that would cascade through
+	// the propagation effects above and cause infinite update loops.
+	useEffect(() => {
+		if (activeTool === "freedraw") return; // preserve per-tool settings
+		if (selectedElementIds.size !== 1) return;
+		const [id] = Array.from(selectedElementIds);
+		if (!id) return;
+		const el = elementsMapRef.current.get(id);
+		if (!el || (el.type !== "freedraw" && (el.type as string) !== "freehand"))
+			return;
+		const { getState } = useCanvasStore;
+		const s = getState();
+		if (s.currentStrokeColor !== el.strokeColor) setStrokeColor(el.strokeColor);
+		if (s.currentStrokeWidth !== el.strokeWidth) setStrokeWidth(el.strokeWidth);
+		if (s.currentOpacity !== (el.opacity ?? 100)) setOpacity(el.opacity ?? 100);
+		const bt = normalizeBrushType((el as FreedrawElement).brushType);
+		if (s.currentBrushType !== bt) setBrushType(bt);
+	}, [
+		activeTool,
+		selectedElementIds,
+		setStrokeColor,
+		setStrokeWidth,
+		setOpacity,
+		setBrushType,
+	]);
+
+	// Propagate brush type change to selected freedraw elements (mirrors the
+	// strokeColor / strokeWidth / opacity effects above)
+	useEffect(() => {
+		const currentSelection = selectedElementIdsRef.current;
+		if (currentSelection.size === 0) return;
+		Array.from(currentSelection).forEach((id) => {
+			const el = elementsMapRef.current.get(id);
+			if (el?.type === "freedraw" || (el?.type as string) === "freehand") {
+				updateElement(id, {
+					brushType: currentBrushType,
+				} as unknown as Partial<CanvasElement>);
+			}
+		});
+	}, [currentBrushType, updateElement]);
 
 	// Track keyboard modifiers for shape creation (Shift for aspect ratio, Alt for center scaling)
 	useEffect(() => {
@@ -1350,8 +2015,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				return;
 			}
 
-			// Duplicate: Ctrl/Cmd + D
-			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+			// Duplicate: Ctrl/Cmd + D (not Shift — Shift+D = debug overlay)
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				!e.shiftKey &&
+				e.key.toLowerCase() === "d"
+			) {
 				e.preventDefault();
 				handleCopy();
 				handlePaste();
@@ -1378,6 +2047,39 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				setShowExportModal(true);
 				return;
 			}
+
+			// Debug Overlay: Ctrl/Cmd + Shift + D
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "d"
+			) {
+				e.preventDefault();
+				setShowDebugOverlay((prev) => !prev);
+				return;
+			}
+
+			// Perf HUD: Ctrl/Cmd + Shift + P
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "p"
+			) {
+				e.preventDefault();
+				setShowPerfHUD((prev) => !prev);
+				return;
+			}
+
+			// Import Scene JSON: Ctrl/Cmd + Shift + I
+			if (
+				(e.ctrlKey || e.metaKey) &&
+				e.shiftKey &&
+				e.key.toLowerCase() === "i"
+			) {
+				e.preventDefault();
+				handleImportScene();
+				return;
+			}
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
@@ -1398,6 +2100,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		handleSendToBack,
 		isReadOnly,
 		setReadOnly,
+		handleImportScene,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -1471,38 +2174,54 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 			switch (activeTool) {
 				case "selection": {
-					// Check what was clicked
+					// --- Resolve Konva target (walk up parent for rough Groups) ---
+					let konvaTargetId = e.target.id?.() || "";
+					if (!konvaTargetId && e.target.parent) {
+						konvaTargetId = e.target.parent.id?.() || "";
+					}
 					const clickedOnStage = e.target === e.target.getStage();
-					const targetId = e.target.id?.();
-					const isActualElement =
-						targetId && elements.some((el) => el.id === targetId);
+					const isKonvaElement =
+						konvaTargetId && elements.some((el) => el.id === konvaTargetId);
 
-					if (isActualElement) {
-						// Clicked directly on an element - select it and enable dragging
-						if (!selectedElementIds.has(targetId)) {
-							setSelectedElementIds(new Set([targetId]));
+					// If the click landed on a non-stage, non-element Konva node
+					// (resize handle, rotation control, etc.) let its own handler run.
+					if (!clickedOnStage && !isKonvaElement) {
+						break;
+					}
+
+					// --- Math-based hit testing (single source of truth) ---
+					const allHits = getAllElementsAtPoint(point, elements);
+
+					// Alt+Click: cycle through overlapping elements
+					if (
+						altPressed &&
+						allHits.length > 1 &&
+						selectedElementIds.size === 1
+					) {
+						const currentId = Array.from(selectedElementIds)[0];
+						const currentIdx = allHits.findIndex((el) => el.id === currentId);
+						if (currentIdx !== -1) {
+							const nextIdx = (currentIdx + 1) % allHits.length;
+							const target = allHits[nextIdx];
+							if (target) {
+								setSelectedElementIds(new Set([target.id]));
+							}
+							break;
+						}
+					}
+
+					// Normal click: select topmost element at point
+					if (allHits.length > 0) {
+						const topHit = allHits[0];
+						if (topHit && !selectedElementIds.has(topHit.id)) {
+							setSelectedElementIds(new Set([topHit.id]));
 						}
 						setIsDragging(true);
 						break;
 					}
 
-					if (!clickedOnStage) {
-						// Clicked on a Konva shape that's NOT an element (rotation control, resize handle, etc.)
-						// Don't change selection - let the control's own handlers deal with it
-						break;
-					}
-
-					// Clicked on the stage background - use custom hit detection for overlapping elements
-					const clickedElement = getElementAtPoint(point, elements);
-					if (clickedElement) {
-						if (!selectedElementIds.has(clickedElement.id)) {
-							setSelectedElementIds(new Set([clickedElement.id]));
-						}
-						setIsDragging(true);
-					} else {
-						// Clicked on empty canvas - clear selection
-						clearSelection();
-					}
+					// Clicked on empty canvas — clear selection
+					clearSelection();
 					break;
 				}
 
@@ -1530,7 +2249,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							backgroundColor: currentBackgroundColor,
 							strokeWidth: currentStrokeWidth,
 							strokeStyle: currentStrokeStyle,
+							fillStyle: currentFillStyle,
 							opacity: currentOpacity,
+							roughStyle: currentRoughEnabled
+								? { enabled: true, sloppiness: currentSloppiness }
+								: undefined,
 						},
 					);
 					setDrawingElement(newShape);
@@ -1544,6 +2267,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeWidth: currentStrokeWidth,
 						strokeStyle: currentStrokeStyle,
 						opacity: currentOpacity,
+						roughStyle: currentRoughEnabled
+							? { enabled: true, sloppiness: currentSloppiness }
+							: undefined,
 					});
 					setDrawingElement(newLine);
 					break;
@@ -1556,6 +2282,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeWidth: currentStrokeWidth,
 						strokeStyle: currentStrokeStyle,
 						opacity: currentOpacity,
+						roughStyle: currentRoughEnabled
+							? { enabled: true, sloppiness: currentSloppiness }
+							: undefined,
 					});
 					setDrawingElement(newArrow);
 					break;
@@ -1568,8 +2297,25 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						strokeColor: currentStrokeColor,
 						strokeWidth: currentStrokeWidth,
 						opacity: currentOpacity,
+						brushType: currentBrushType,
 					});
 					setDrawingElement(newFreedraw);
+
+					// Spray: create offscreen raster engine for real-time stamping
+					if (currentBrushType === "spray") {
+						const w = (dimensions.width || window.innerWidth) * 2;
+						const h = (dimensions.height || window.innerHeight) * 2;
+						sprayRasterRef.current = new SprayRasterEngine({
+							width: w,
+							height: h,
+							size: currentStrokeWidth * 2,
+							color: currentStrokeColor,
+							seedId: newFreedraw.seedId ?? "spray",
+						});
+						sprayRasterRef.current.addPoint(0, 0);
+						sprayGhostThrottleRef.current = 0;
+						setActiveSprayEngine(sprayRasterRef.current);
+					}
 					break;
 				}
 
@@ -1618,12 +2364,18 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			currentStrokeWidth,
 			currentStrokeStyle,
 			currentOpacity,
+			currentFillStyle,
+			currentBrushType,
+			currentRoughEnabled,
+			currentSloppiness,
 			shiftPressed,
 			altPressed,
 			deleteElements,
 			isDrawing,
 			drawingElement,
 			isReadOnly,
+			dimensions.width,
+			dimensions.height,
 		],
 	);
 
@@ -1784,18 +2536,58 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}
 
 				case "freedraw": {
-					// Add point to freedraw path (persistent)
+					// Add point to ref immediately (zero allocation on hot path)
 					freedrawPointsRef.current.push([dx, dy]);
 
-					setDrawingElement({
-						...drawingElement,
-						points: freedrawPointsRef.current,
-					} as FreedrawElement);
-					// Broadcast ghost preview to remote users
-					broadcastDrawingPreview({
-						...drawingElement,
-						points: freedrawPointsRef.current,
-					});
+					// ── Spray uses offscreen raster engine ──
+					if (sprayRasterRef.current) {
+						// Stamp dots to offscreen canvas (O(newDots), very cheap)
+						sprayRasterRef.current.addPoint(dx, dy);
+
+						// rAF-batched: ask Konva to re-blit the Image node.
+						// NO React state update needed — just a Konva layer redraw.
+						if (!freedrawDirtyRef.current) {
+							freedrawDirtyRef.current = true;
+							freedrawRafRef.current = requestAnimationFrame(() => {
+								freedrawDirtyRef.current = false;
+								sprayImageRef.current?.getLayer()?.batchDraw();
+
+								// Throttled ghost broadcast for spray (~5 Hz)
+								const now = performance.now();
+								if (now - sprayGhostThrottleRef.current > 200) {
+									sprayGhostThrottleRef.current = now;
+									broadcastDrawingPreview({
+										...drawingElement,
+										points: freedrawPointsRef.current,
+									});
+								}
+							});
+						}
+						break;
+					}
+
+					// ── Non-spray (pencil / watercolour) ──
+					// rAF-batched render: schedule a single state update per frame
+					// instead of re-rendering the entire scene on every pointermove.
+					if (!freedrawDirtyRef.current) {
+						freedrawDirtyRef.current = true;
+						freedrawRafRef.current = requestAnimationFrame(() => {
+							freedrawDirtyRef.current = false;
+							// drawingElement may be stale in the closure so read from ref-stable data
+							setDrawingElement((prev) => {
+								if (!prev || prev.type !== "freedraw") return prev;
+								return {
+									...prev,
+									points: freedrawPointsRef.current,
+								} as FreedrawElement;
+							});
+							// Broadcast ghost preview to remote users
+							broadcastDrawingPreview({
+								...drawingElement,
+								points: freedrawPointsRef.current,
+							});
+						});
+					}
 					break;
 				}
 			}
@@ -1834,18 +2626,22 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		// Clear ghost preview immediately — before any commit logic
 		clearGhost();
 
+		// Cancel any pending freedraw rAF so the final commit uses the
+		// complete point buffer (Phase 5 — flush rAF).
+		if (freedrawRafRef.current) {
+			cancelAnimationFrame(freedrawRafRef.current);
+			freedrawRafRef.current = 0;
+			freedrawDirtyRef.current = false;
+		}
+
 		// Finalize drawing
 		if (isDrawing && drawingElement) {
-			// Freedraw: simplified, no pressure calculation
+			// Freedraw: commit raw points with no simplification so the
+			// stroke faithfully follows the cursor.
 			if (drawingElement.type === "freedraw") {
 				const freedrawElement = drawingElement as FreedrawElement;
 				if (freedrawPointsRef.current.length > 2) {
-					// Optionally simplify path for network efficiency
-					const simplifiedPoints = simplifyPath(
-						freedrawPointsRef.current,
-						2.0, // epsilon value
-					);
-					freedrawElement.points = simplifiedPoints;
+					freedrawElement.points = freedrawPointsRef.current;
 					// Assign proper zIndex so new elements appear on top
 					freedrawElement.zIndex = getNextZIndex();
 					addElement(freedrawElement);
@@ -1893,6 +2689,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setDrawingElement(null);
 		setInteractionStartPoint(null);
 		freedrawPointsRef.current = [];
+
+		// Dispose spray raster engine (if active)
+		if (sprayRasterRef.current) {
+			setActiveSprayEngine(null);
+			sprayRasterRef.current.dispose();
+			sprayRasterRef.current = null;
+		}
 
 		// Clear eraser state
 		isErasingRef.current = false;
@@ -2172,24 +2975,46 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	);
 
 	/**
-	 * Handle rotation move - Update element angle during drag
+	 * Handle rotation move - rAF-batched angle update for smooth rotation
 	 */
 	const handleRotationMove = useCallback(
 		(elementId: string, angle: number, _e: KonvaEventObject<MouseEvent>) => {
 			if (!rotatingElement || rotatingElement.id !== elementId) return;
 
-			// Update element angle in real-time
-			updateElement(elementId, { angle });
+			// Store pending angle; let rAF flush it
+			pendingRotationRef.current = { id: elementId, angle };
+			if (rotationRafRef.current == null) {
+				rotationRafRef.current = requestAnimationFrame(() => {
+					rotationRafRef.current = null;
+					const pending = pendingRotationRef.current;
+					if (pending) {
+						updateElement(pending.id, { angle: pending.angle });
+					}
+				});
+			}
 		},
 		[rotatingElement, updateElement],
 	);
 
 	/**
-	 * Handle rotation end - Finalize the rotation operation
+	 * Handle rotation end - Flush any pending rAF and finalize
 	 */
-	const handleRotationEnd = useCallback((_elementId: string) => {
-		setRotatingElement(null);
-	}, []);
+	const handleRotationEnd = useCallback(
+		(_elementId: string) => {
+			// Flush any pending rotation before clearing state
+			if (rotationRafRef.current != null) {
+				cancelAnimationFrame(rotationRafRef.current);
+				rotationRafRef.current = null;
+			}
+			const pending = pendingRotationRef.current;
+			if (pending) {
+				updateElement(pending.id, { angle: pending.angle });
+				pendingRotationRef.current = null;
+			}
+			setRotatingElement(null);
+		},
+		[updateElement],
+	);
 
 	/**
 	 * Handle mouse leave - Clear cursor from awareness
@@ -2198,6 +3023,34 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		updateCursor(null);
 		setHoveredElement(null);
 	}, [updateCursor]);
+
+	// ─────────────────────────────────────────────────────────────────
+	// MEMOISED COMMITTED ELEMENTS (Phase 6)
+	// Re-compute render output only when elements, selection, or
+	// relevant handlers change — NOT on every drawingElement update.
+	// ─────────────────────────────────────────────────────────────────
+
+	const committedElements = useMemo(
+		() =>
+			elements.map((element) =>
+				renderElement(
+					element,
+					selectedElementIds.has(element.id),
+					activeTool === "selection" && !rotatingElement,
+					false,
+					handleElementDragEnd,
+					handleJointDrag,
+				),
+			),
+		[
+			elements,
+			selectedElementIds,
+			activeTool,
+			rotatingElement,
+			handleElementDragEnd,
+			handleJointDrag,
+		],
+	);
 
 	// ─────────────────────────────────────────────────────────────────
 	// RENDER
@@ -2224,7 +3077,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			/>
 
 			{/* UI Components */}
-			<HeaderLeft onClearCanvas={handleClearCanvas} onExport={handleExport} />
+			<HeaderLeft
+				onClearCanvas={handleClearCanvas}
+				onExport={handleExport}
+				onImportJson={handleImportScene}
+			/>
 			<HeaderRight />
 			<Toolbar />
 			<PropertiesPanel />
@@ -2234,6 +3091,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				canUndo={canUndo}
 				canRedo={canRedo}
 			/>
+
+			{/* Phase 0 — Debug & Perf overlays */}
+			<DebugOverlay
+				visible={showDebugOverlay}
+				freedrawPointCount={freedrawPointCount}
+			/>
+			<PerfHUD visible={showPerfHUD} freedrawPointCount={freedrawPointCount} />
 
 			{/* Empty Canvas Hero - shown when no elements */}
 			{elements.length === 0 && <EmptyCanvasHero />}
@@ -2275,21 +3139,26 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}}
 			>
 				<Layer>
-					{/* Render existing elements */}
-					{elements.map((element) =>
-						renderElement(
-							element,
-							selectedElementIds.has(element.id),
-							activeTool === "selection",
-							false, // not preview
-							handleElementDragEnd,
-							handleJointDrag,
-						),
-					)}
+					{/* Render existing elements (memoised — Phase 6) */}
+					{committedElements}
 
 					{/* Render element being drawn */}
 					{drawingElement &&
-						renderElement(drawingElement, false, false, true, () => {})}
+						(sprayRasterRef.current ? (
+							// Spray live preview: single Konva.Image blitting the offscreen canvas
+							<KonvaImage
+								ref={(node) => {
+									sprayImageRef.current = node;
+								}}
+								image={sprayRasterRef.current.canvas}
+								x={drawingElement.x - sprayRasterRef.current.originX}
+								y={drawingElement.y - sprayRasterRef.current.originY}
+								opacity={(drawingElement.opacity ?? 100) / 100}
+								listening={false}
+							/>
+						) : (
+							renderElement(drawingElement, false, false, true, () => {})
+						))}
 
 					{/* Render laser path (temporary) */}
 					{laserPath && activeTool === "laser" && interactionStartPoint && (
@@ -2344,6 +3213,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 									y={element.y}
 									width={element.width}
 									height={element.height}
+									rotation={element.angle}
 									elementId={element.id}
 									zoom={zoom}
 									scrollX={scrollX}

@@ -1,7 +1,6 @@
 "use client";
 
 import type { KonvaEventObject } from "konva/lib/Node";
-import { useState } from "react";
 import { Circle, Group, Line, Path } from "react-konva";
 
 interface RotationControlsProps {
@@ -9,6 +8,7 @@ interface RotationControlsProps {
 	y: number;
 	width: number;
 	height: number;
+	rotation: number;
 	elementId: string;
 	zoom: number;
 	scrollX: number;
@@ -35,6 +35,7 @@ export function RotationControls({
 	y,
 	width,
 	height,
+	rotation,
 	elementId,
 	zoom,
 	scrollX,
@@ -44,33 +45,24 @@ export function RotationControls({
 	onRotationMove,
 	onRotationEnd,
 }: RotationControlsProps) {
-	const [isDragging, setIsDragging] = useState(false);
+	// Element center in world coordinates (pivot point)
 	const centerX = x + width / 2;
 	const centerY = y + height / 2;
 
-	// Calculate rotation handle position (above the rotation button)
-	const handleY = y - HANDLE_OFFSET - BUTTON_SIZE;
-	const handleX = centerX;
+	// Positions relative to center (local space of the rotated wrapper Group)
+	const halfH = height / 2;
+	const handleLocalY = -(halfH + HANDLE_OFFSET + BUTTON_SIZE);
+	const buttonLocalY = -(halfH + HANDLE_OFFSET / 2);
+	const topEdgeLocalY = -halfH;
 
-	// Calculate rotation button position (above element)
-	const buttonY = y - HANDLE_OFFSET / 2;
-	const buttonX = centerX;
-
-	// Circular arrow icon (cleaner design matching reference)
-	const rotateIconPath = `
-		M 6 -2
-		A 5 5 0 1 1 1 3
-		L 1 0
-		L 4 3
-		L 1 3
-		Z
-	`;
+	// Circular arrow icon
+	const rotateIconPath = "M 6 -2 A 5 5 0 1 1 1 3 L 1 0 L 4 3 L 1 3 Z";
 
 	return (
-		<>
-			{/* Connection line from element to rotation controls */}
+		<Group x={centerX} y={centerY} rotation={rotation}>
+			{/* Connection line from element top-edge to handle */}
 			<Line
-				points={[centerX, y, centerX, handleY]}
+				points={[0, topEdgeLocalY, 0, handleLocalY]}
 				stroke={HANDLE_COLOR}
 				strokeWidth={1}
 				dash={[4, 4]}
@@ -79,8 +71,8 @@ export function RotationControls({
 
 			{/* 90° Rotation Button */}
 			<Group
-				x={buttonX}
-				y={buttonY}
+				x={0}
+				y={buttonLocalY}
 				onClick={(e) => {
 					e.cancelBubble = true;
 					onRotate90(elementId);
@@ -94,7 +86,6 @@ export function RotationControls({
 					if (container) container.style.cursor = "default";
 				}}
 			>
-				{/* Button background */}
 				<Circle
 					radius={BUTTON_SIZE / 2}
 					fill={BUTTON_BG}
@@ -104,8 +95,6 @@ export function RotationControls({
 					shadowBlur={4}
 					shadowOffset={{ x: 0, y: 2 }}
 				/>
-
-				{/* Rotation icon - circular arrow */}
 				<Path
 					data={rotateIconPath}
 					fill={HANDLE_COLOR}
@@ -116,10 +105,10 @@ export function RotationControls({
 
 			{/* Arbitrary Rotation Drag Handle */}
 			<Circle
-				x={handleX}
-				y={handleY}
+				x={0}
+				y={handleLocalY}
 				radius={HANDLE_SIZE / 2}
-				fill={isDragging ? "#8b7cf6" : HANDLE_COLOR}
+				fill={HANDLE_COLOR}
 				stroke={HANDLE_STROKE}
 				strokeWidth={2}
 				draggable
@@ -133,7 +122,6 @@ export function RotationControls({
 				}}
 				onDragStart={(e) => {
 					e.cancelBubble = true;
-					setIsDragging(true);
 					const container = e.target.getStage()?.container();
 					if (container) container.style.cursor = "grabbing";
 					onRotationStart(
@@ -144,23 +132,18 @@ export function RotationControls({
 				onDragMove={(e) => {
 					e.cancelBubble = true;
 
-					// Get mouse position in screen coordinates
 					const stage = e.target.getStage();
 					const screenPos = stage?.getPointerPosition();
 					if (!screenPos) return;
 
-					// Convert screen coordinates to canvas coordinates
-					// Stage transforms: canvas = (screen - scroll) / zoom
+					// Convert screen → canvas world coordinates
 					const canvasMouseX = (screenPos.x - scrollX) / zoom;
 					const canvasMouseY = (screenPos.y - scrollY) / zoom;
 
-					// Calculate angle from element center (in canvas coordinates) to mouse position (now in canvas coordinates)
+					// Angle from pivot (element center) to pointer, top = 0°
 					const dx = canvasMouseX - centerX;
 					const dy = canvasMouseY - centerY;
-					const angleRad = Math.atan2(dy, dx);
-					const angleDeg = (angleRad * 180) / Math.PI + 90; // Offset by 90 to make top = 0°
-
-					// Normalize to 0-360
+					const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
 					const normalizedAngle = ((angleDeg % 360) + 360) % 360;
 
 					onRotationMove(
@@ -168,15 +151,22 @@ export function RotationControls({
 						normalizedAngle,
 						e as unknown as KonvaEventObject<MouseEvent>,
 					);
+
+					// Force handle back to its local-space position so it
+					// doesn't drift while the parent Group re-renders with the
+					// new rotation value.
+					e.target.x(0);
+					e.target.y(handleLocalY);
 				}}
 				onDragEnd={(e) => {
 					e.cancelBubble = true;
-					setIsDragging(false);
 					const container = e.target.getStage()?.container();
 					if (container) container.style.cursor = "default";
+					e.target.x(0);
+					e.target.y(handleLocalY);
 					onRotationEnd(elementId);
 				}}
 			/>
-		</>
+		</Group>
 	);
 }
