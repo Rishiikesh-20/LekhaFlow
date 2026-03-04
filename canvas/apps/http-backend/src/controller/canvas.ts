@@ -18,7 +18,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-			(parsedData.error.issues[0]?.message ?? "Invalid input"),
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
@@ -49,7 +49,7 @@ export const updateCanvas = async (req: Request, res: Response) => {
 	if (!parsedData.success) {
 		throw new HttpError(
 			"Validation Failed: " +
-			(parsedData.error.issues[0]?.message ?? "Invalid input"),
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
 			StatusCodes.BAD_REQUEST,
 		);
 	}
@@ -123,15 +123,17 @@ export const searchCanvases = async (req: Request, res: Response) => {
 	const sortByParam = (req.query.sortBy as string) || "createdAt";
 	const orderParam = (req.query.order as string) || "desc";
 	const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
-	const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 20));
+	const limit = Math.min(
+		100,
+		Math.max(1, parseInt(req.query.limit as string, 10) || 20),
+	);
 
 	// Validate sortBy
 	const sortBy: "createdAt" | "title" =
 		sortByParam === "title" ? "title" : "createdAt";
 
 	// Validate order
-	const order: "asc" | "desc" =
-		orderParam === "asc" ? "asc" : "desc";
+	const order: "asc" | "desc" = orderParam === "asc" ? "asc" : "desc";
 
 	const result = await searchCanvasesService(req.user.id, {
 		q,
@@ -141,5 +143,10 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		limit,
 	});
 
-	return JSONResponse(res, StatusCodes.OK, "Search results retrieved successfully", result);
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		"Search results retrieved successfully",
+		result,
+	);
 };
