@@ -1,19 +1,21 @@
 /**
  * ============================================================================
- * LEKHAFLOW - PENCIL BRUSH (Normal Pencil)
+ * LEKHAFLOW — PENCIL BRUSH  (Excalidraw-style Pen)
  * ============================================================================
  *
- * Truly raw pencil stroke — zero post-processing.
+ * Stores raw input points unmodified (for data integrity / undo / export).
+ * At *render time*, feeds those points through perfect-freehand's getStroke()
+ * to produce a filled outline polygon — giving the Excalidraw "pen" look:
+ *   • visually smooth & continuous
+ *   • rounded caps/joins
+ *   • variable-width via pressure (real or simulated)
+ *   • NO geometric autocorrect — user's drawing intent is preserved
  *
- * Output: an open SVG polyline (`M … L … L …`) rendered with Konva's
- * `stroke` + `strokeWidth` instead of `fill`.  Every input point appears
- * in the path verbatim; sharp corners stay sharp; no EMA, no outline
- * offset, no pressure simulation, no curve fitting.
- *
- * renderMode = "stroke" signals Canvas.tsx / GhostLayer.tsx to use
- * `stroke` props when rendering this brush's path data.
+ * renderMode = "fill" — Canvas.tsx / GhostLayer.tsx render the resulting
+ * closed SVG path with `fill` (not `stroke`).
  */
 
+import getStroke from "perfect-freehand";
 import type { Brush, BrushOptions, BrushPoint } from "./types";
 
 // ============================================================================
@@ -22,7 +24,43 @@ import type { Brush, BrushOptions, BrushPoint } from "./types";
 
 const PENCIL_DEFAULTS = {
 	size: 4,
+	thinning: 0.5,
+	smoothing: 0.5,
+	streamline: 0.5,
+	simulatePressure: true,
 } as const;
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/**
+ * Convert an array of outline points (from perfect-freehand) into a closed
+ * SVG path using average-midpoint quadratic curves — identical to the
+ * approach Excalidraw uses for butter-smooth rendering.
+ */
+function outlineToPath(outline: number[][]): string {
+	if (outline.length === 0) return "";
+
+	const first = outline[0] as number[];
+	if (outline.length < 3) {
+		return `M ${first[0]},${first[1]} Z`;
+	}
+
+	let d = `M ${first[0]},${first[1]}`;
+
+	for (let i = 1; i < outline.length - 1; i++) {
+		const curr = outline[i] as [number, number];
+		const next = outline[i + 1] as [number, number];
+		// Midpoint between current and next → control point = curr
+		const mx = (curr[0] + next[0]) / 2;
+		const my = (curr[1] + next[1]) / 2;
+		d += ` Q ${curr[0]},${curr[1]} ${mx},${my}`;
+	}
+
+	d += " Z";
+	return d;
+}
 
 // ============================================================================
 // PENCIL BRUSH
@@ -31,7 +69,7 @@ const PENCIL_DEFAULTS = {
 export const PencilBrush: Brush = {
 	type: "pencil",
 	displayName: "Normal Pencil",
-	renderMode: "stroke",
+	renderMode: "fill",
 
 	generatePath(
 		points: ReadonlyArray<BrushPoint>,
@@ -52,14 +90,28 @@ export const PencilBrush: Brush = {
 			);
 		}
 
-		// Raw open polyline — no smoothing, no outline, no pressure math.
-		// The path is rendered with Konva stroke + strokeWidth (renderMode=stroke).
-		const first = points[0] as BrushPoint;
-		let d = `M ${first.x},${first.y}`;
-		for (let i = 1; i < points.length; i++) {
+		// Map BrushPoint[] → [x, y, pressure][] for perfect-freehand
+		const inputPoints: [number, number, number][] = [];
+		for (let i = 0; i < points.length; i++) {
 			const p = points[i] as BrushPoint;
-			d += ` L ${p.x},${p.y}`;
+			inputPoints.push([p.x, p.y, p.pressure ?? 0.5]);
 		}
-		return d;
+
+		// Generate outline polygon via perfect-freehand
+		const outline = getStroke(inputPoints, {
+			size,
+			thinning: PENCIL_DEFAULTS.thinning,
+			smoothing: PENCIL_DEFAULTS.smoothing,
+			streamline: PENCIL_DEFAULTS.streamline,
+			simulatePressure: PENCIL_DEFAULTS.simulatePressure,
+			start: { cap: true },
+			end: { cap: true },
+			last: true,
+		});
+
+		if (outline.length === 0) return "";
+
+		// Convert outline polygon to smooth SVG path (Excalidraw-style Q curves)
+		return outlineToPath(outline);
 	},
 };

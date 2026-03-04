@@ -745,16 +745,9 @@ function renderElement(
 				const brushOpts = {
 					size: element.strokeWidth * 2,
 					seedId: freedrawElement.seedId,
-					// Explicitly zero — prevent any brush from defaulting to non-zero
 					streamline: 0,
 					smoothing: 0,
 				};
-				if (process.env.NODE_ENV !== "production") {
-					console.assert(
-						brushOpts.streamline === 0 && brushOpts.smoothing === 0,
-						"Freedraw: streamline & smoothing must be 0 (raw input)",
-					);
-				}
 				const layers = getCachedLayers(brush, brushPoints, brushOpts);
 				if (layers.length > 1) {
 					// Multi-pass brush (watercolour): render layered Group
