@@ -249,9 +249,7 @@ export const searchCanvasesService = async (
 		...new Set(
 			(tagMatches || [])
 				.map((t: { canvas_id: string }) => t.canvas_id)
-				.filter(
-					(id: string) => !(nameMatches || []).some((c) => c.id === id),
-				),
+				.filter((id: string) => !(nameMatches || []).some((c) => c.id === id)),
 		),
 	];
 
@@ -290,4 +288,3 @@ export const searchCanvasesService = async (
 
 	return { canvases: paginatedCanvases, total, page, limit };
 };
-
