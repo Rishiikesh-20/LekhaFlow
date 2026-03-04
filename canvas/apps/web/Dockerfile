@@ -69,6 +69,10 @@ COPY --from=builder /app/apps/web/.next/standalone ./
 COPY --from=builder /app/apps/web/.next/static   ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public          ./apps/web/public
 
+# Pre-create the image/fetch cache directory so the non-root user can write to it
+RUN mkdir -p ./apps/web/.next/cache && \
+    chown -R nextjs:nodejs ./apps/web/.next
+
 USER nextjs
 
 EXPOSE 3000
