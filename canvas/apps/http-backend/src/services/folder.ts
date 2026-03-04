@@ -46,6 +46,8 @@ export const createFolderService = async (params: {
 export const getFolderContentsService = async (
 	ownerId: string,
 	folderId?: string | null,
+	sortBy?: string,
+	order?: string,
 ): Promise<{
 	folders: Tables<"folders">[];
 	canvases: Tables<"canvases">[];
@@ -69,13 +71,22 @@ export const getFolderContentsService = async (
 		throw new HttpError(folderError.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
 
+	// Determine canvas sort column and direction
+	const orderColumn =
+		sortBy === "title"
+			? "name"
+			: sortBy === "createdAt"
+				? "created_at"
+				: "updated_at";
+	const ascending = order === "asc";
+
 	// Get child canvases
 	let canvasQuery = serviceClient
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", ownerId)
 		.eq("is_deleted", false)
-		.order("updated_at", { ascending: false });
+		.order(orderColumn, { ascending });
 
 	if (folderId) {
 		canvasQuery = canvasQuery.eq("folder_id", folderId);
