@@ -48,6 +48,7 @@ interface SidebarMenuProps {
 	onClose: () => void;
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
+	onImportJson?: () => void;
 }
 
 function SidebarMenu({
@@ -55,6 +56,7 @@ function SidebarMenu({
 	onClose,
 	onClearCanvas,
 	onExport,
+	onImportJson,
 }: SidebarMenuProps) {
 	return (
 		<>
@@ -144,6 +146,15 @@ function SidebarMenu({
 								label="Export as JSON"
 								onClick={() => {
 									onExport?.("json");
+									onClose();
+								}}
+							/>
+							<MenuItem
+								icon={<FolderOpen />}
+								label="Import JSON"
+								shortcut="Ctrl+Shift+I"
+								onClick={() => {
+									onImportJson?.();
 									onClose();
 								}}
 							/>
@@ -433,9 +444,14 @@ export function SavingStatusIndicator() {
 interface HeaderLeftProps {
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
+	onImportJson?: () => void;
 }
 
-export function HeaderLeft({ onClearCanvas, onExport }: HeaderLeftProps) {
+export function HeaderLeft({
+	onClearCanvas,
+	onExport,
+	onImportJson,
+}: HeaderLeftProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [canvasName, setCanvasName] = useState("");
 	const [roomId, setRoomId] = useState("");
@@ -619,6 +635,7 @@ export function HeaderLeft({ onClearCanvas, onExport }: HeaderLeftProps) {
 				onClose={() => setMenuOpen(false)}
 				onClearCanvas={onClearCanvas}
 				onExport={onExport}
+				onImportJson={onImportJson}
 			/>
 		</>
 	);

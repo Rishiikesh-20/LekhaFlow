@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Antigravity from "../components/Antigravity";
-import { Dashboard } from "../components/Dashboard";
+import { FolderView } from "../components/FolderView";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { supabase } from "../lib/supabase.client";
@@ -317,10 +317,10 @@ export default function Home() {
 					<div className="max-w-6xl mx-auto">
 						<div className="flex items-center justify-between mb-8">
 							<h2 className="text-2xl font-bold text-gray-900 font-heading">
-								Recent Canvases
+								My Canvases
 							</h2>
 						</div>
-						<Dashboard />
+						<FolderView />
 					</div>
 				</section>
 			)}

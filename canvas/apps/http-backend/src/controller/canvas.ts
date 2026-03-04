@@ -22,7 +22,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 		);
 	}
 
-	const { name, isPublic } = parsedData.data;
+	const { name, isPublic, folderId } = parsedData.data;
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -31,6 +31,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 	const newCanvas = await createCanvasService({
 		name,
 		isPublic,
+		folderId,
 		userId,
 	});
 
