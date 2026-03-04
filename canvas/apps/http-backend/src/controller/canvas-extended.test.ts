@@ -389,9 +389,7 @@ describe("GET /api/v1/canvas/search", () => {
 	it("returns search results for a given query", async () => {
 		mockAuthSuccess("user-123");
 		searchCanvasesServiceMock.mockResolvedValue({
-			canvases: [
-				{ id: "c1", name: "Architecture 2024", owner_id: "user-123" },
-			],
+			canvases: [{ id: "c1", name: "Architecture 2024", owner_id: "user-123" }],
 			total: 1,
 			page: 1,
 			limit: 20,
