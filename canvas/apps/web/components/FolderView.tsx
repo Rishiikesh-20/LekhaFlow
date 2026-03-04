@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	ArrowUpDown,
 	ChevronRight,
 	File,
 	Folder,
@@ -10,6 +11,7 @@ import {
 	Home,
 	List,
 	Plus,
+	Search,
 	Share2,
 	Trash2,
 	X,
@@ -56,6 +58,13 @@ export function FolderView() {
 	const [newFolderName, setNewFolderName] = useState("");
 	const [creatingFolder, setCreatingFolder] = useState(false);
 	const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [sortBy, setSortBy] = useState<"createdAt" | "title">("createdAt");
+	const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+	const [searchResults, setSearchResults] = useState<CanvasItem[]>([]);
+	const [isSearchMode, setIsSearchMode] = useState(false);
+	const [searchLoading, setSearchLoading] = useState(false);
+	const [searchTotal, setSearchTotal] = useState(0);
 	const justDroppedRef = useRef(false);
 	const router = useRouter();
 
@@ -83,9 +92,12 @@ export function FolderView() {
 		if (session) setCurrentUserId(session.user.id);
 
 		try {
-			const url = currentFolderId
-				? `${HTTP_URL}/api/v1/folder/contents?folderId=${currentFolderId}`
-				: `${HTTP_URL}/api/v1/folder/contents`;
+			const params = new URLSearchParams();
+			if (currentFolderId) params.set("folderId", currentFolderId);
+			if (sortBy) params.set("sortBy", sortBy);
+			if (sortOrder) params.set("order", sortOrder);
+
+			const url = `${HTTP_URL}/api/v1/folder/contents?${params.toString()}`;
 
 			const res = await fetch(url, { headers });
 			if (res.ok) {
@@ -99,7 +111,7 @@ export function FolderView() {
 		} finally {
 			setLoading(false);
 		}
-	}, [currentFolderId, getAuthHeaders]);
+	}, [currentFolderId, sortBy, sortOrder, getAuthHeaders]);
 
 	const fetchBreadcrumb = useCallback(async () => {
 		if (!currentFolderId) {
@@ -126,13 +138,82 @@ export function FolderView() {
 	}, [currentFolderId, getAuthHeaders]);
 
 	useEffect(() => {
-		setLoading(true);
-		fetchContents();
-		fetchBreadcrumb();
-	}, [fetchContents, fetchBreadcrumb]);
+		if (!isSearchMode) {
+			setLoading(true);
+			fetchContents();
+			fetchBreadcrumb();
+		}
+	}, [fetchContents, fetchBreadcrumb, isSearchMode]);
+
+	// Debounced search effect (300ms)
+	useEffect(() => {
+		if (!searchQuery.trim()) {
+			setIsSearchMode(false);
+			setSearchResults([]);
+			setSearchTotal(0);
+			return;
+		}
+
+		setIsSearchMode(true);
+		setSearchLoading(true);
+
+		const timer = setTimeout(async () => {
+			const headers = await getAuthHeaders();
+			if (!headers) {
+				setSearchLoading(false);
+				return;
+			}
+
+			try {
+				const params = new URLSearchParams({
+					q: searchQuery.trim(),
+					sortBy,
+					order: sortOrder,
+				});
+				const res = await fetch(
+					`${HTTP_URL}/api/v1/canvas/search?${params.toString()}`,
+					{ headers },
+				);
+				if (res.ok) {
+					const json = await res.json();
+					const data = json?.data ?? json;
+					setSearchResults(data.canvases ?? []);
+					setSearchTotal(data.total ?? 0);
+				}
+			} catch (e) {
+				console.error("Error searching canvases:", e);
+			} finally {
+				setSearchLoading(false);
+			}
+		}, 300);
+
+		return () => clearTimeout(timer);
+	}, [searchQuery, sortBy, sortOrder, getAuthHeaders]);
+
+	const handleSortChange = (value: string) => {
+		switch (value) {
+			case "newest":
+				setSortBy("createdAt");
+				setSortOrder("desc");
+				break;
+			case "oldest":
+				setSortBy("createdAt");
+				setSortOrder("asc");
+				break;
+			case "az":
+				setSortBy("title");
+				setSortOrder("asc");
+				break;
+		}
+	};
+
+	const currentSortValue =
+		sortBy === "title" ? "az" : sortOrder === "asc" ? "oldest" : "newest";
 
 	const navigateToFolder = (folderId: string | null) => {
 		setCurrentFolderId(folderId);
+		setSearchQuery("");
+		setIsSearchMode(false);
 	};
 
 	const handleCreateFolder = async () => {
@@ -363,6 +444,46 @@ export function FolderView() {
 				))}
 			</nav>
 
+			{/* Search Bar & Sort Dropdown */}
+			<div className="flex items-center gap-3">
+				<div className="relative flex-1 max-w-md">
+					<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+					<input
+						id="canvas-search-input"
+						type="text"
+						value={searchQuery}
+						onChange={(e) => setSearchQuery(e.target.value)}
+						placeholder="Search canvases by title or tag..."
+						className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 transition-all placeholder:text-gray-400"
+					/>
+					{searchQuery && (
+						<button
+							type="button"
+							onClick={() => {
+								setSearchQuery("");
+								setIsSearchMode(false);
+							}}
+							className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 transition-colors"
+						>
+							<X size={14} />
+						</button>
+					)}
+				</div>
+				<div className="relative">
+					<ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+					<select
+						id="canvas-sort-select"
+						value={currentSortValue}
+						onChange={(e) => handleSortChange(e.target.value)}
+						className="appearance-none pl-8 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 cursor-pointer transition-all"
+					>
+						<option value="newest">Newest First</option>
+						<option value="oldest">Oldest First</option>
+						<option value="az">Alphabetical (A-Z)</option>
+					</select>
+				</div>
+			</div>
+
 			{/* Toolbar */}
 			<div className="flex items-center justify-between gap-3">
 				<div className="flex items-center gap-2">
@@ -443,8 +564,160 @@ export function FolderView() {
 				</div>
 			)}
 
-			{/* Empty State */}
-			{isEmpty && (
+			{/* Search Loading */}
+			{isSearchMode && searchLoading && (
+				<div className="flex items-center justify-center p-16">
+					<div className="h-8 w-8 border-2 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
+				</div>
+			)}
+
+			{/* Search Results Empty State */}
+			{isSearchMode && !searchLoading && searchResults.length === 0 && (
+				<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-2xl bg-white">
+					<div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-6">
+						<Search className="w-8 h-8 text-gray-400" />
+					</div>
+					<h3 className="text-lg font-medium text-gray-900 font-heading mb-2">
+						No results found
+					</h3>
+					<p className="text-gray-500 text-center max-w-sm">
+						No canvases match &ldquo;{searchQuery}&rdquo;. Try a different
+						keyword or check your spelling.
+					</p>
+				</div>
+			)}
+
+			{/* Search Results */}
+			{isSearchMode && !searchLoading && searchResults.length > 0 && (
+				<div>
+					<p className="text-xs text-gray-500 mb-3">
+						{searchTotal} result{searchTotal !== 1 ? "s" : ""} for &ldquo;
+						{searchQuery}&rdquo;
+					</p>
+					{viewMode === "grid" ? (
+						<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+							{searchResults.map((canvas) => (
+								<div
+									key={canvas.id}
+									role="button"
+									tabIndex={0}
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											router.push(`/canvas/${canvas.id}`);
+										}
+									}}
+									className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
+								>
+									<div className="aspect-[4/3] bg-gray-50 relative overflow-hidden">
+										{canvas.thumbnail_url ? (
+											/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
+											<img
+												src={canvas.thumbnail_url}
+												alt={canvas.name || "Canvas preview"}
+												className="w-full h-full object-cover"
+												loading="lazy"
+											/>
+										) : (
+											<>
+												<div
+													className="absolute inset-0 opacity-[0.4]"
+													style={{
+														backgroundImage:
+															"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+														backgroundSize: "16px 16px",
+													}}
+												/>
+												<div className="w-full h-full flex items-center justify-center">
+													<File className="w-10 h-10 text-gray-300" />
+												</div>
+											</>
+										)}
+										<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
+									</div>
+									<div className="p-3 flex items-center justify-between border-t border-gray-100">
+										<div className="min-w-0 flex-1">
+											<div className="flex items-center gap-1.5">
+												<h3 className="font-medium text-sm text-gray-900 truncate">
+													{canvas.name || "Untitled"}
+												</h3>
+												{currentUserId && canvas.owner_id !== currentUserId && (
+													<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
+														<Share2 size={10} />
+														Shared
+													</span>
+												)}
+											</div>
+											<p className="text-xs text-gray-500 mt-0.5">
+												{formatDate(canvas.updated_at)}
+											</p>
+										</div>
+									</div>
+								</div>
+							))}
+						</div>
+					) : (
+						<div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+							{searchResults.map((canvas) => (
+								<div
+									key={canvas.id}
+									role="button"
+									tabIndex={0}
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											router.push(`/canvas/${canvas.id}`);
+										}
+									}}
+									className="flex items-center justify-between p-4 hover:bg-violet-50/50 cursor-pointer group transition-colors"
+								>
+									<div className="flex items-center gap-4 min-w-0">
+										<div className="h-10 w-14 bg-gray-50 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200">
+											{canvas.thumbnail_url ? (
+												/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
+												<img
+													src={canvas.thumbnail_url}
+													alt={canvas.name || "Canvas preview"}
+													className="w-full h-full object-cover"
+													loading="lazy"
+												/>
+											) : (
+												<File size={18} className="text-violet-500" />
+											)}
+										</div>
+										<div className="min-w-0">
+											<div className="flex items-center gap-1.5">
+												<h3 className="font-medium text-gray-900 truncate">
+													{canvas.name || "Untitled"}
+												</h3>
+												{currentUserId && canvas.owner_id !== currentUserId && (
+													<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
+														<Share2 size={10} />
+														Shared
+													</span>
+												)}
+											</div>
+											<p className="text-xs text-gray-500">
+												Edited {formatDate(canvas.updated_at)}
+											</p>
+										</div>
+									</div>
+									<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+										<Button variant="secondary" size="sm">
+											Open
+										</Button>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			)}
+
+			{/* Empty State (non-search) */}
+			{!isSearchMode && isEmpty && (
 				<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-2xl bg-white">
 					<div className="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mb-6">
 						{currentFolderId ? (
@@ -478,7 +751,7 @@ export function FolderView() {
 			)}
 
 			{/* Grid View */}
-			{!isEmpty && viewMode === "grid" && (
+			{!isSearchMode && !isEmpty && viewMode === "grid" && (
 				<div className="space-y-6">
 					{/* Folders */}
 					{folders.length > 0 && (
@@ -638,7 +911,7 @@ export function FolderView() {
 			)}
 
 			{/* List View */}
-			{!isEmpty && viewMode === "list" && (
+			{!isSearchMode && !isEmpty && viewMode === "list" && (
 				<div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
 					{/* Folders */}
 					{folders.map((folder) => (
