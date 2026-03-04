@@ -17,4 +17,3 @@ canvasRouter.get("/:roomId", authMiddleware, getCanvas);
 canvasRouter.post("/create-canvas", authMiddleware, createCanvas);
 canvasRouter.put("/:roomId", authMiddleware, updateCanvas);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
-
