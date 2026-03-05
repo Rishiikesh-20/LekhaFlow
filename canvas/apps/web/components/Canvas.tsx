@@ -112,6 +112,7 @@ import {
 	useElementsArray,
 } from "../store/canvas-store";
 import { ActivitySidebar } from "./canvas/ActivitySidebar";
+import { AiChatSidebar } from "./canvas/AiChatSidebar";
 import { AttributionTooltip } from "./canvas/AttributionTooltip";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
@@ -3414,6 +3415,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 			{/* Activity Log Sidebar */}
 			<ActivitySidebar />
+
+			{/* AI Chat Sidebar */}
+			<AiChatSidebar stageRef={stageRef} />
 
 			{/* Named Versions Sidebar */}
 			<VersionsPanel
