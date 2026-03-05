@@ -130,7 +130,7 @@ export const deleteCanvasService = async (
 ): Promise<void> => {
 	const { error } = await serviceClient
 		.from("canvases")
-		.update({ is_deleted: true })
+		.update({ is_deleted: true, deleted_at: new Date().toISOString() })
 		.eq("id", canvasId)
 		.eq("owner_id", userId);
 
