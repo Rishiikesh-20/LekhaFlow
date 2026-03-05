@@ -1,13 +1,22 @@
 "use client";
 
 import type { User } from "@supabase/supabase-js";
-import { ArrowRight, LogOut, Plus, Sparkles, Users, Zap } from "lucide-react";
+import {
+	ArrowRight,
+	LogOut,
+	Plus,
+	Sparkles,
+	Trash2,
+	Users,
+	Zap,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Antigravity from "../components/Antigravity";
 import { FolderView } from "../components/FolderView";
+import { TrashView } from "../components/TrashView";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { supabase } from "../lib/supabase.client";
@@ -20,6 +29,7 @@ export default function Home() {
 	const [user, setUser] = useState<User | null>(null);
 	const [authLoading, setAuthLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
+	const [activeTab, setActiveTab] = useState<"canvases" | "trash">("canvases");
 
 	// Listen for auth state
 	useEffect(() => {
@@ -316,11 +326,33 @@ export default function Home() {
 				<section className="px-6 py-16">
 					<div className="max-w-6xl mx-auto">
 						<div className="flex items-center justify-between mb-8">
-							<h2 className="text-2xl font-bold text-gray-900 font-heading">
-								My Canvases
-							</h2>
+							<div className="flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-xl p-1">
+								<button
+									type="button"
+									onClick={() => setActiveTab("canvases")}
+									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+										activeTab === "canvases"
+											? "bg-white text-gray-900 shadow-sm"
+											: "text-gray-500 hover:text-gray-700"
+									}`}
+								>
+									My Canvases
+								</button>
+								<button
+									type="button"
+									onClick={() => setActiveTab("trash")}
+									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+										activeTab === "trash"
+											? "bg-white text-gray-900 shadow-sm"
+											: "text-gray-500 hover:text-gray-700"
+									}`}
+								>
+									<Trash2 size={14} />
+									Trash
+								</button>
+							</div>
 						</div>
-						<FolderView />
+						{activeTab === "canvases" ? <FolderView /> : <TrashView />}
 					</div>
 				</section>
 			)}
