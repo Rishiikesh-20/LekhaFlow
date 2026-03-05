@@ -227,6 +227,9 @@ interface CanvasState {
 
 	/** Whether the activity sidebar is open */
 	isActivitySidebarOpen: boolean;
+
+	/** Whether the AI chat sidebar is open */
+	isAiChatOpen: boolean;
 }
 
 /**
@@ -396,6 +399,13 @@ interface CanvasActions {
 
 	/** Clear the activity log */
 	clearActivityLog: () => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI CHAT ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Toggle the AI chat sidebar */
+	setAiChatOpen: (open: boolean) => void;
 }
 
 // ============================================================================
@@ -474,6 +484,9 @@ export const initialState: CanvasState = {
 	// Activity log
 	activityLog: [],
 	isActivitySidebarOpen: false,
+
+	// AI chat
+	isAiChatOpen: false,
 };
 
 /**
@@ -739,6 +752,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 		setActivitySidebarOpen: (open) => set({ isActivitySidebarOpen: open }),
 
 		clearActivityLog: () => set({ activityLog: [] }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// AI CHAT ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setAiChatOpen: (open) => set({ isAiChatOpen: open }),
 	})),
 );
 

@@ -1,6 +1,7 @@
 // Canvas components barrel export
 
 export { ActivitySidebar } from "./ActivitySidebar";
+export { AiChatSidebar } from "./AiChatSidebar";
 export { CollaboratorCursors } from "./CollaboratorCursors";
 export { HeaderLeft, HeaderRight } from "./Header";
 export { HelpPanel } from "./HelpPanel";
