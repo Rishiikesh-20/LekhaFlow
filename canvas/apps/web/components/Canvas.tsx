@@ -92,7 +92,11 @@ import {
 	createShape,
 	createText,
 	getAllElementsAtPoint,
+	getCombinedBounds,
 	getElementAtPoint,
+	getElementsInSelection,
+	getRotatedBoundingBox,
+	normalizeRect,
 	type ShapeModifiers,
 } from "../lib/element-utils";
 import { importSceneFromFile } from "../lib/import-scene";
@@ -120,6 +124,10 @@ import { DebugOverlay } from "./canvas/DebugOverlay";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
+import {
+	type GroupHandlePosition,
+	GroupTransformHandles,
+} from "./canvas/GroupTransformHandles";
 import { HeaderLeft, HeaderRight } from "./canvas/Header";
 import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
@@ -1002,6 +1010,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const {
 		addElement,
 		updateElement,
+		batchUpdateElements,
 		deleteElements,
 		updateCursor,
 		updateSelection,
@@ -1036,6 +1045,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setActiveTool,
 		selectedElementIds,
 		setSelectedElementIds,
+		addToSelection,
+		removeFromSelection,
 		clearSelection,
 		currentStrokeColor,
 		currentBackgroundColor,
@@ -1064,6 +1075,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setStrokeWidth,
 		setOpacity,
 		setBrushType,
+		batchUpdateElements: storeBatchUpdate,
 	} = useCanvasStore();
 
 	// Elements and collaborators from store
@@ -1254,6 +1266,67 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// Eraser state - track continuous drag
 	const isErasingRef = useRef<boolean>(false);
 	const erasedElementsRef = useRef<Set<string>>(new Set());
+
+	// Marquee (drag-select) state — ephemeral, lives in component not store
+	const marqueeAnchorRef = useRef<Point | null>(null);
+	const [marqueeRect, setMarqueeRect] = useState<{
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	} | null>(null);
+	/** Whether the current marquee should add to existing selection */
+	const marqueeAdditiveRef = useRef(false);
+
+	// ── Group-move interaction state ──
+	/** Starting world-coords pointer position for the group drag */
+	const groupMoveStartRef = useRef<Point | null>(null);
+	/** Cached initial {id, x, y} for every selected element at drag start */
+	const groupMoveInitialRef = useRef<
+		Array<{ id: string; x: number; y: number }>
+	>([]);
+	/** rAF handle for batching group-move store updates */
+	const groupMoveRafRef = useRef<number>(0);
+	/** Latest unprocessed dx/dy for the group-move rAF */
+	const groupMoveDeltaRef = useRef<{ dx: number; dy: number }>({
+		dx: 0,
+		dy: 0,
+	});
+
+	// ── Group-rotate interaction state ──
+	const groupRotateRef = useRef<{
+		centerX: number;
+		centerY: number;
+		startAngle: number;
+		initials: Array<{ id: string; x: number; y: number; angle: number }>;
+	} | null>(null);
+	const groupRotateRafRef = useRef<number>(0);
+	const groupRotateDeltaRef = useRef<number>(0);
+
+	// ── Group-resize interaction state ──
+	const groupResizeRef = useRef<{
+		anchorX: number;
+		anchorY: number;
+		origWidth: number;
+		origHeight: number;
+		origX: number;
+		origY: number;
+		handle: GroupHandlePosition;
+		initials: Array<{
+			id: string;
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+			angle: number;
+			points?: Array<[number, number, number?]>;
+		}>;
+	} | null>(null);
+	const groupResizeRafRef = useRef<number>(0);
+	const groupResizeScaleRef = useRef<{ sx: number; sy: number }>({
+		sx: 1,
+		sy: 1,
+	});
 
 	// Ref to track current selection (fixes stale closure in color update effects)
 	const selectedElementIdsRef = useRef<Set<string>>(selectedElementIds);
@@ -1743,89 +1816,137 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	}, [clipboard, addElement, setSelectedElementIds, getNextZIndex]);
 
 	/**
-	 * Bring selected elements forward one level (swap with element above)
-	 * Elements array is already sorted by zIndex (ascending)
+	 * Bring selected elements forward one level.
+	 * Treats selection as a block — preserves relative order among selected,
+	 * swaps the block with the first unselected element above it.
+	 * Atomic: ONE Y.js transaction via batchUpdateElements.
 	 */
 	const handleBringForward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		// Process each selected element
-		Array.from(selectedElementIds).forEach((id) => {
-			const currentIndex = elements.findIndex((el) => el.id === id);
-			if (currentIndex === -1 || currentIndex === elements.length - 1) return; // Already on top or not found
+		// elements is already sorted by zIndex ascending
+		const selected: typeof elements = [];
+		const unselected: typeof elements = [];
+		for (const el of elements) {
+			if (selectedElementIds.has(el.id)) selected.push(el);
+			else unselected.push(el);
+		}
+		if (selected.length === 0 || unselected.length === 0) return;
 
-			const currentElement = elements[currentIndex];
-			const elementAbove = elements[currentIndex + 1];
+		// Find insertion index: count unselected elements below lowest selected
+		let insertIdx = 0;
+		const firstSelected = selected[0];
+		if (!firstSelected) return;
+		const lowestSelectedIdx = elements.indexOf(firstSelected);
+		for (let i = 0; i < lowestSelectedIdx; i++) {
+			const el = elements[i];
+			if (el && !selectedElementIds.has(el.id)) insertIdx++;
+		}
 
-			if (!currentElement || !elementAbove) return;
+		// Move one step up (past one unselected element)
+		if (insertIdx >= unselected.length) return; // already at top
+		insertIdx = Math.min(insertIdx + 1, unselected.length);
 
-			// Swap zIndex values with element above
-			const currentZ = currentElement.zIndex ?? currentIndex;
-			const aboveZ = elementAbove.zIndex ?? currentIndex + 1;
-
-			// Swap: current gets higher, above gets lower
-			updateElement(id, { zIndex: aboveZ });
-			updateElement(elementAbove.id, { zIndex: currentZ });
-		});
-	}, [selectedElementIds, elements, updateElement]);
+		const newOrder = [
+			...unselected.slice(0, insertIdx),
+			...selected,
+			...unselected.slice(insertIdx),
+		];
+		const batch = newOrder.map((el, i) => ({
+			id: el.id,
+			updates: { zIndex: i + 1 },
+		}));
+		batchUpdateElements(batch);
+		storeBatchUpdate(batch);
+	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
-	 * Send selected elements backward one level (swap with element below)
-	 * Elements array is already sorted by zIndex (ascending)
+	 * Send selected elements backward one level.
+	 * Treats selection as a block — preserves relative order.
 	 */
 	const handleSendBackward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		// Process each selected element
-		Array.from(selectedElementIds).forEach((id) => {
-			const currentIndex = elements.findIndex((el) => el.id === id);
-			if (currentIndex <= 0) return; // Already at back or not found
+		const selected: typeof elements = [];
+		const unselected: typeof elements = [];
+		for (const el of elements) {
+			if (selectedElementIds.has(el.id)) selected.push(el);
+			else unselected.push(el);
+		}
+		if (selected.length === 0 || unselected.length === 0) return;
 
-			const currentElement = elements[currentIndex];
-			const elementBelow = elements[currentIndex - 1];
+		// Find insertion index: count unselected elements below lowest selected
+		let insertIdx = 0;
+		const firstSelected = selected[0];
+		if (!firstSelected) return;
+		const lowestSelectedIdx = elements.indexOf(firstSelected);
+		for (let i = 0; i < lowestSelectedIdx; i++) {
+			const el = elements[i];
+			if (el && !selectedElementIds.has(el.id)) insertIdx++;
+		}
 
-			if (!currentElement || !elementBelow) return;
+		// Move one step down (past one unselected element below)
+		if (insertIdx <= 0) return; // already at back
+		insertIdx = Math.max(insertIdx - 1, 0);
 
-			// Swap zIndex values with element below
-			const currentZ = currentElement.zIndex ?? currentIndex;
-			const belowZ = elementBelow.zIndex ?? currentIndex - 1;
-
-			// Swap: current gets lower, below gets higher
-			updateElement(id, { zIndex: belowZ });
-			updateElement(elementBelow.id, { zIndex: currentZ });
-		});
-	}, [selectedElementIds, elements, updateElement]);
+		const newOrder = [
+			...unselected.slice(0, insertIdx),
+			...selected,
+			...unselected.slice(insertIdx),
+		];
+		const batch = newOrder.map((el, i) => ({
+			id: el.id,
+			updates: { zIndex: i + 1 },
+		}));
+		batchUpdateElements(batch);
+		storeBatchUpdate(batch);
+	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
-	 * Bring selected elements to front (highest z-index)
+	 * Bring selected elements to front (highest z-index).
+	 * Preserves relative order among selected. Atomic Y.js transaction.
 	 */
 	const handleBringToFront = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const maxZ = Math.max(...elements.map((el) => el.zIndex || 0), 0);
-
-		let nextZ = maxZ + 1;
-		Array.from(selectedElementIds).forEach((id) => {
-			updateElement(id, { zIndex: nextZ });
-			nextZ++;
-		});
-	}, [selectedElementIds, elements, updateElement]);
+		const selected: typeof elements = [];
+		const unselected: typeof elements = [];
+		for (const el of elements) {
+			if (selectedElementIds.has(el.id)) selected.push(el);
+			else unselected.push(el);
+		}
+		// New order: all unselected first, then selected block on top
+		const newOrder = [...unselected, ...selected];
+		const batch = newOrder.map((el, i) => ({
+			id: el.id,
+			updates: { zIndex: i + 1 },
+		}));
+		batchUpdateElements(batch);
+		storeBatchUpdate(batch);
+	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
-	 * Send selected elements to back (lowest z-index)
+	 * Send selected elements to back (lowest z-index).
+	 * Preserves relative order among selected. Atomic Y.js transaction.
 	 */
 	const handleSendToBack = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const minZ = Math.min(...elements.map((el) => el.zIndex || 0), 0);
-
-		// Set selected elements to zIndex below the minimum
-		let nextZ = minZ - selectedElementIds.size;
-		Array.from(selectedElementIds).forEach((id) => {
-			updateElement(id, { zIndex: nextZ });
-			nextZ++;
-		});
-	}, [selectedElementIds, elements, updateElement]);
+		const selected: typeof elements = [];
+		const unselected: typeof elements = [];
+		for (const el of elements) {
+			if (selectedElementIds.has(el.id)) selected.push(el);
+			else unselected.push(el);
+		}
+		// New order: selected block at bottom, then all unselected
+		const newOrder = [...selected, ...unselected];
+		const batch = newOrder.map((el, i) => ({
+			id: el.id,
+			updates: { zIndex: i + 1 },
+		}));
+		batchUpdateElements(batch);
+		storeBatchUpdate(batch);
+	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
 	 * Handle context menu (right-click)
@@ -2221,18 +2342,71 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						}
 					}
 
-					// Normal click: select topmost element at point
+					// Click on element
 					if (allHits.length > 0) {
 						const topHit = allHits[0];
-						if (topHit && !selectedElementIds.has(topHit.id)) {
-							setSelectedElementIds(new Set([topHit.id]));
+						if (topHit) {
+							if (shiftPressed) {
+								// Shift+click: toggle element in/out of selection
+								if (selectedElementIds.has(topHit.id)) {
+									removeFromSelection([topHit.id]);
+								} else {
+									addToSelection([topHit.id]);
+								}
+							} else if (!selectedElementIds.has(topHit.id)) {
+								// Normal click on unselected element: replace selection
+								setSelectedElementIds(new Set([topHit.id]));
+							}
+
+							setIsDragging(true);
+
+							// Initiate group move when multi-selected and clicked
+							// on an already-selected element (no shift toggle)
+							if (
+								!shiftPressed &&
+								selectedElementIds.size > 1 &&
+								selectedElementIds.has(topHit.id)
+							) {
+								groupMoveStartRef.current = point;
+								groupMoveInitialRef.current = elements
+									.filter((el) => selectedElementIds.has(el.id))
+									.map((el) => ({ id: el.id, x: el.x, y: el.y }));
+							}
 						}
-						setIsDragging(true);
 						break;
 					}
 
-					// Clicked on empty canvas — clear selection
-					clearSelection();
+					// Multi-select: click inside group bounds but not on any element
+					// → start group move of all selected elements
+					if (selectedElementIds.size > 1) {
+						const selEls = elements.filter((el) =>
+							selectedElementIds.has(el.id),
+						);
+						const gb = getCombinedBounds(selEls);
+						if (
+							gb &&
+							point.x >= gb.x - 4 &&
+							point.x <= gb.x + gb.width + 4 &&
+							point.y >= gb.y - 4 &&
+							point.y <= gb.y + gb.height + 4
+						) {
+							setIsDragging(true);
+							groupMoveStartRef.current = point;
+							groupMoveInitialRef.current = selEls.map((el) => ({
+								id: el.id,
+								x: el.x,
+								y: el.y,
+							}));
+							break;
+						}
+					}
+
+					// Clicked on empty canvas — start marquee drag
+					marqueeAnchorRef.current = point;
+					marqueeAdditiveRef.current = shiftPressed;
+					if (!shiftPressed) {
+						clearSelection();
+					}
 					break;
 				}
 
@@ -2366,6 +2540,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			elements,
 			selectedElementIds,
 			setSelectedElementIds,
+			addToSelection,
+			removeFromSelection,
 			clearSelection,
 			setIsDrawing,
 			setIsDragging,
@@ -2429,6 +2605,37 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}
 			} else {
 				setHoveredElement(null);
+			}
+
+			// Handle marquee drag-select
+			if (marqueeAnchorRef.current && activeTool === "selection") {
+				const anchor = marqueeAnchorRef.current;
+				setMarqueeRect({
+					x: anchor.x,
+					y: anchor.y,
+					width: point.x - anchor.x,
+					height: point.y - anchor.y,
+				});
+				return;
+			}
+
+			// Handle group move (multi-select drag) — rAF batched
+			if (groupMoveStartRef.current && activeTool === "selection") {
+				const dx = point.x - groupMoveStartRef.current.x;
+				const dy = point.y - groupMoveStartRef.current.y;
+				groupMoveDeltaRef.current = { dx, dy };
+				if (!groupMoveRafRef.current) {
+					groupMoveRafRef.current = requestAnimationFrame(() => {
+						groupMoveRafRef.current = 0;
+						const { dx: fdx, dy: fdy } = groupMoveDeltaRef.current;
+						const batch = groupMoveInitialRef.current.map(({ id, x, y }) => ({
+							id,
+							updates: { x: x + fdx, y: y + fdy } as Partial<CanvasElement>,
+						}));
+						storeBatchUpdate(batch);
+					});
+				}
+				return;
 			}
 
 			// Handle hand tool panning
@@ -2635,6 +2842,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			resizingElement,
 			rotatingElement,
 			broadcastDrawingPreview,
+			storeBatchUpdate,
 		],
 	);
 
@@ -2648,6 +2856,52 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleMouseUp = useCallback(() => {
 		// Clear ghost preview immediately — before any commit logic
 		clearGhost();
+
+		// Finalise marquee drag-select
+		if (marqueeAnchorRef.current) {
+			marqueeAnchorRef.current = null;
+			if (marqueeRect) {
+				const norm = normalizeRect(marqueeRect);
+				// Only apply if user actually dragged (not just clicked)
+				if (norm.width > 3 || norm.height > 3) {
+					const hits = getElementsInSelection(norm, elements);
+					const hitIds = hits.map((el) => el.id);
+					if (marqueeAdditiveRef.current) {
+						addToSelection(hitIds);
+					} else {
+						setSelectedElementIds(new Set(hitIds));
+					}
+				}
+			}
+			setMarqueeRect(null);
+			marqueeAdditiveRef.current = false;
+			return;
+		}
+
+		// Finalise group move — commit to Y.js in one transaction
+		if (groupMoveStartRef.current) {
+			// Cancel any pending rAF
+			if (groupMoveRafRef.current) {
+				cancelAnimationFrame(groupMoveRafRef.current);
+				groupMoveRafRef.current = 0;
+			}
+			// Apply final delta to initial cached positions
+			const { dx, dy } = groupMoveDeltaRef.current;
+			if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+				const batch = groupMoveInitialRef.current.map(({ id, x, y }) => ({
+					id,
+					updates: { x: x + dx, y: y + dy },
+				}));
+				// Commit to Y.js in a single transaction
+				batchUpdateElements(batch);
+			}
+			// Reset group move state
+			groupMoveStartRef.current = null;
+			groupMoveInitialRef.current = [];
+			groupMoveDeltaRef.current = { dx: 0, dy: 0 };
+			setIsDragging(false);
+			return;
+		}
 
 		// Cancel any pending freedraw rAF so the final commit uses the
 		// complete point buffer (Phase 5 — flush rAF).
@@ -2728,12 +2982,16 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		drawingElement,
 		addElement,
 		setSelectedElementIds,
+		addToSelection,
 		setIsDrawing,
 		setIsDragging,
 		setInteractionStartPoint,
 		activeTool,
 		getNextZIndex,
 		clearGhost,
+		marqueeRect,
+		elements,
+		batchUpdateElements,
 	]);
 
 	/**
@@ -3039,6 +3297,269 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		[updateElement],
 	);
 
+	// ─────────────────────────────────────────────────────────────────
+	// GROUP ROTATE HANDLERS (Phase 3)
+	// ─────────────────────────────────────────────────────────────────
+
+	const handleGroupRotateStart = useCallback(
+		(_e: KonvaEventObject<MouseEvent>) => {
+			const selected = elements.filter((el) => selectedElementIds.has(el.id));
+			if (selected.length < 2) return;
+			const gb = getCombinedBounds(selected);
+			if (!gb) return;
+
+			const stage = stageRef.current;
+			const pos = stage?.getPointerPosition();
+			if (!pos) return;
+
+			const cx = gb.x + gb.width / 2;
+			const cy = gb.y + gb.height / 2;
+			const px = (pos.x - scrollX) / zoom;
+			const py = (pos.y - scrollY) / zoom;
+			const startAngle = Math.atan2(py - cy, px - cx);
+
+			groupRotateRef.current = {
+				centerX: cx,
+				centerY: cy,
+				startAngle,
+				initials: selected.map((el) => ({
+					id: el.id,
+					x: el.x,
+					y: el.y,
+					angle: el.angle,
+				})),
+			};
+			groupRotateDeltaRef.current = 0;
+			setIsDragging(true);
+		},
+		[elements, selectedElementIds, scrollX, scrollY, zoom, setIsDragging],
+	);
+
+	const handleGroupRotateMove = useCallback(
+		(_e: KonvaEventObject<MouseEvent>) => {
+			const rot = groupRotateRef.current;
+			if (!rot) return;
+
+			const stage = stageRef.current;
+			const pos = stage?.getPointerPosition();
+			if (!pos) return;
+
+			const px = (pos.x - scrollX) / zoom;
+			const py = (pos.y - scrollY) / zoom;
+			const currentAngle = Math.atan2(py - rot.centerY, px - rot.centerX);
+			const deltaAngle = currentAngle - rot.startAngle;
+			groupRotateDeltaRef.current = deltaAngle;
+
+			if (!groupRotateRafRef.current) {
+				groupRotateRafRef.current = requestAnimationFrame(() => {
+					groupRotateRafRef.current = 0;
+					const r = groupRotateRef.current;
+					if (!r) return;
+					const da = groupRotateDeltaRef.current;
+					const cos = Math.cos(da);
+					const sin = Math.sin(da);
+					const daDeg = (da * 180) / Math.PI;
+					const batch = r.initials.map(({ id, x, y, angle }) => {
+						const dx = x - r.centerX;
+						const dy = y - r.centerY;
+						return {
+							id,
+							updates: {
+								x: r.centerX + dx * cos - dy * sin,
+								y: r.centerY + dx * sin + dy * cos,
+								angle: (((angle + daDeg) % 360) + 360) % 360,
+							} as Partial<CanvasElement>,
+						};
+					});
+					storeBatchUpdate(batch);
+				});
+			}
+		},
+		[scrollX, scrollY, zoom, storeBatchUpdate],
+	);
+
+	const handleGroupRotateEnd = useCallback(() => {
+		const rot = groupRotateRef.current;
+		if (!rot) return;
+
+		if (groupRotateRafRef.current) {
+			cancelAnimationFrame(groupRotateRafRef.current);
+			groupRotateRafRef.current = 0;
+		}
+
+		const da = groupRotateDeltaRef.current;
+		if (Math.abs(da) > 0.001) {
+			const cos = Math.cos(da);
+			const sin = Math.sin(da);
+			const daDeg = (da * 180) / Math.PI;
+			const batch = rot.initials.map(({ id, x, y, angle }) => {
+				const dx = x - rot.centerX;
+				const dy = y - rot.centerY;
+				return {
+					id,
+					updates: {
+						x: rot.centerX + dx * cos - dy * sin,
+						y: rot.centerY + dx * sin + dy * cos,
+						angle: (((angle + daDeg) % 360) + 360) % 360,
+					},
+				};
+			});
+			batchUpdateElements(batch);
+		}
+
+		groupRotateRef.current = null;
+		groupRotateDeltaRef.current = 0;
+		setIsDragging(false);
+	}, [batchUpdateElements, setIsDragging]);
+
+	// ─────────────────────────────────────────────────────────────────
+	// GROUP RESIZE HANDLERS (Phase 3)
+	// ─────────────────────────────────────────────────────────────────
+
+	const handleGroupResizeStart = useCallback(
+		(handle: GroupHandlePosition, _e: KonvaEventObject<MouseEvent>) => {
+			const selected = elements.filter((el) => selectedElementIds.has(el.id));
+			if (selected.length < 2) return;
+			const gb = getCombinedBounds(selected);
+			if (!gb) return;
+
+			// Anchor = opposite corner/edge of the handle being dragged
+			let anchorX = gb.x;
+			let anchorY = gb.y;
+			if (handle.includes("left")) anchorX = gb.x + gb.width;
+			else if (handle.includes("right")) anchorX = gb.x;
+			else anchorX = gb.x; // center handles: anchor at left
+			if (handle.includes("top")) anchorY = gb.y + gb.height;
+			else if (handle.includes("bottom")) anchorY = gb.y;
+			else anchorY = gb.y; // center handles: anchor at top
+
+			groupResizeRef.current = {
+				anchorX,
+				anchorY,
+				origWidth: gb.width,
+				origHeight: gb.height,
+				origX: gb.x,
+				origY: gb.y,
+				handle,
+				initials: selected.map((el) => ({
+					id: el.id,
+					x: el.x,
+					y: el.y,
+					width: el.width,
+					height: el.height,
+					angle: el.angle,
+					points:
+						el.type === "freedraw" ? (el as FreedrawElement).points : undefined,
+				})),
+			};
+			groupResizeScaleRef.current = { sx: 1, sy: 1 };
+			setIsDragging(true);
+		},
+		[elements, selectedElementIds, setIsDragging],
+	);
+
+	const handleGroupResizeMove = useCallback(
+		(_handle: GroupHandlePosition, _e: KonvaEventObject<MouseEvent>) => {
+			const rs = groupResizeRef.current;
+			if (!rs) return;
+
+			const stage = stageRef.current;
+			const pos = stage?.getPointerPosition();
+			if (!pos) return;
+
+			const px = (pos.x - scrollX) / zoom;
+			const py = (pos.y - scrollY) / zoom;
+
+			// Compute scale relative to anchor
+			let sx = 1;
+			let sy = 1;
+			const handle = rs.handle;
+
+			if (handle.includes("left") || handle.includes("right")) {
+				const newW = Math.abs(px - rs.anchorX);
+				sx = Math.max(0.05, newW / rs.origWidth);
+			}
+			if (handle.includes("top") || handle.includes("bottom")) {
+				const newH = Math.abs(py - rs.anchorY);
+				sy = Math.max(0.05, newH / rs.origHeight);
+			}
+			// Edge-center handles: preserve other axis
+			if (handle === "top-center" || handle === "bottom-center") sx = 1;
+			if (handle === "left-center" || handle === "right-center") sy = 1;
+
+			// Shift = uniform scale
+			if (shiftPressed && handle.includes("-") && !handle.includes("center")) {
+				const uniform = Math.max(sx, sy);
+				sx = uniform;
+				sy = uniform;
+			}
+
+			groupResizeScaleRef.current = { sx, sy };
+
+			if (!groupResizeRafRef.current) {
+				groupResizeRafRef.current = requestAnimationFrame(() => {
+					groupResizeRafRef.current = 0;
+					const r = groupResizeRef.current;
+					if (!r) return;
+					const { sx: fsx, sy: fsy } = groupResizeScaleRef.current;
+					const batch = r.initials.map((init) => {
+						const newX = r.anchorX + (init.x - r.anchorX) * fsx;
+						const newY = r.anchorY + (init.y - r.anchorY) * fsy;
+						const updates: Partial<CanvasElement> = {
+							x: newX,
+							y: newY,
+							width: init.width * fsx,
+							height: init.height * fsy,
+						};
+						return { id: init.id, updates };
+					});
+					storeBatchUpdate(batch);
+				});
+			}
+		},
+		[scrollX, scrollY, zoom, shiftPressed, storeBatchUpdate],
+	);
+
+	const handleGroupResizeEnd = useCallback(() => {
+		const rs = groupResizeRef.current;
+		if (!rs) return;
+
+		if (groupResizeRafRef.current) {
+			cancelAnimationFrame(groupResizeRafRef.current);
+			groupResizeRafRef.current = 0;
+		}
+
+		const { sx, sy } = groupResizeScaleRef.current;
+		if (Math.abs(sx - 1) > 0.001 || Math.abs(sy - 1) > 0.001) {
+			const batch = rs.initials.map((init) => {
+				const newX = rs.anchorX + (init.x - rs.anchorX) * sx;
+				const newY = rs.anchorY + (init.y - rs.anchorY) * sy;
+				const updates: Record<string, unknown> = {
+					x: newX,
+					y: newY,
+					width: init.width * sx,
+					height: init.height * sy,
+				};
+				// Bake scaled points for freedraw elements
+				if (init.points) {
+					updates.points = init.points.map((p) => {
+						const scaled: [number, number, number?] = [p[0] * sx, p[1] * sy];
+						if (p[2] != null) scaled[2] = p[2];
+						return scaled;
+					});
+				}
+				return { id: init.id, updates };
+			});
+			batchUpdateElements(
+				batch as Array<{ id: string; updates: Partial<CanvasElement> }>,
+			);
+		}
+
+		groupResizeRef.current = null;
+		groupResizeScaleRef.current = { sx: 1, sy: 1 };
+		setIsDragging(false);
+	}, [batchUpdateElements, setIsDragging]);
+
 	/**
 	 * Handle mouse leave - Clear cursor from awareness
 	 */
@@ -3059,7 +3580,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				renderElement(
 					element,
 					selectedElementIds.has(element.id),
-					activeTool === "selection" && !rotatingElement,
+					activeTool === "selection" &&
+						!rotatingElement &&
+						selectedElementIds.size <= 1,
 					false,
 					handleElementDragEnd,
 					handleJointDrag,
@@ -3229,7 +3752,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						renderElement(
 							element,
 							selectedElementIds.has(element.id),
-							activeTool === "selection",
+							activeTool === "selection" && selectedElementIds.size <= 1,
 							false, // not preview
 							handleElementDragEnd,
 							handleJointDrag,
@@ -3268,22 +3791,24 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						/>
 					)}
 
-					{/* Render resize handles for selected elements (not lines/arrows) */}
-					{selectedResizableElements.map((element) => (
-						<ResizeHandles
-							key={`resize-${element.id}`}
-							x={element.x}
-							y={element.y}
-							width={element.width}
-							height={element.height}
-							elementId={element.id}
-							onResizeStart={handleResizeStart}
-							onResizeMove={handleResizeMove}
-							onResizeEnd={handleResizeEnd}
-						/>
-					))}
+					{/* ── Single-selection handles (resize + rotate) ── */}
+					{selectedElementIds.size === 1 &&
+						selectedResizableElements.map((element) => (
+							<ResizeHandles
+								key={`resize-${element.id}`}
+								x={element.x}
+								y={element.y}
+								width={element.width}
+								height={element.height}
+								elementId={element.id}
+								onResizeStart={handleResizeStart}
+								onResizeMove={handleResizeMove}
+								onResizeEnd={handleResizeEnd}
+							/>
+						))}
 
-					{activeTool === "selection" &&
+					{selectedElementIds.size === 1 &&
+						activeTool === "selection" &&
 						elements
 							.filter(
 								(element) =>
@@ -3310,6 +3835,74 @@ export function Canvas({ roomId, token }: CanvasProps) {
 									onRotationEnd={handleRotationEnd}
 								/>
 							))}
+
+					{/* ── Multi-selection visuals ── */}
+					{selectedElementIds.size > 1 &&
+						activeTool === "selection" &&
+						(() => {
+							const selElements = elements.filter((el) =>
+								selectedElementIds.has(el.id),
+							);
+							const groupBounds = getCombinedBounds(selElements);
+							return (
+								<>
+									{/* Per-object selection boxes */}
+									{selElements.map((el) => {
+										const b = getRotatedBoundingBox(el);
+										return (
+											<Rect
+												key={`sel-box-${el.id}`}
+												x={b.x}
+												y={b.y}
+												width={b.width}
+												height={b.height}
+												stroke="#6965db"
+												strokeWidth={1}
+												dash={[4, 4]}
+												listening={false}
+											/>
+										);
+									})}
+									{/* Group transformer with resize + rotate handles */}
+									{groupBounds && (
+										<GroupTransformHandles
+											x={groupBounds.x - 4}
+											y={groupBounds.y - 4}
+											width={groupBounds.width + 8}
+											height={groupBounds.height + 8}
+											onResizeStart={handleGroupResizeStart}
+											onResizeMove={handleGroupResizeMove}
+											onResizeEnd={handleGroupResizeEnd}
+											onRotateStart={handleGroupRotateStart}
+											onRotateMove={handleGroupRotateMove}
+											onRotateEnd={handleGroupRotateEnd}
+										/>
+									)}
+								</>
+							);
+						})()}
+
+					{/* ── Marquee selection overlay ── */}
+					{marqueeRect && (
+						<Rect
+							x={
+								marqueeRect.width < 0
+									? marqueeRect.x + marqueeRect.width
+									: marqueeRect.x
+							}
+							y={
+								marqueeRect.height < 0
+									? marqueeRect.y + marqueeRect.height
+									: marqueeRect.y
+							}
+							width={Math.abs(marqueeRect.width)}
+							height={Math.abs(marqueeRect.height)}
+							fill="rgba(105, 101, 219, 0.08)"
+							stroke="#6965db"
+							strokeWidth={1}
+							listening={false}
+						/>
+					)}
 				</Layer>
 
 				{/* Ghost Layer: Remote users' live drawing previews */}
