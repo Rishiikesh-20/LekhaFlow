@@ -1,0 +1,178 @@
+name: PR Preview Deploy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [dev, main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/digital-canvas
+
+jobs:
+  # ── Build preview images ──
+  build-preview:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        app: [web, http-backend, ws-backend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push preview image
+        uses: docker/build-push-action@v6
+        with:
+          context: canvas
+          file: canvas/apps/${{ matrix.app }}/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.app }}:pr-${{ github.event.pull_request.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
+            NEXT_PUBLIC_HTTP_URL=${{ secrets.NEXT_PUBLIC_HTTP_URL }}
+
+  # ── Deploy preview environment ──
+  deploy-preview:
+    if: github.event.action != 'closed'
+    needs: build-preview
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Deploy preview via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: PR_NUMBER,GHCR_OWNER
+          script: |
+            set -e
+
+            TAG="pr-${PR_NUMBER}"
+            PROJECT="digital-canvas-preview-${PR_NUMBER}"
+
+            # Port offsets based on PR number (base ports + PR number * 10)
+            WEB_PORT=$((4000 + PR_NUMBER))
+            HTTP_PORT=$((9000 + PR_NUMBER))
+            WS_PORT=$((10000 + PR_NUMBER))
+
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Create a temporary compose file for this preview
+            cat > /tmp/${PROJECT}.yml <<EOF
+            services:
+              http-backend:
+                image: ghcr.io/${GHCR_OWNER}/digital-canvas-http-backend:${TAG}
+                ports:
+                  - "${HTTP_PORT}:8000"
+                environment:
+                  SUPABASE_URL: \${SUPABASE_URL}
+                  SUPABASE_SERVICE_KEY: \${SUPABASE_SERVICE_KEY}
+                  NODE_ENV: staging
+              ws-backend:
+                image: ghcr.io/${GHCR_OWNER}/digital-canvas-ws-backend:${TAG}
+                ports:
+                  - "${WS_PORT}:8080"
+                environment:
+                  SUPABASE_URL: \${SUPABASE_URL}
+                  SUPABASE_SERVICE_KEY: \${SUPABASE_SERVICE_KEY}
+                  NODE_ENV: staging
+              web:
+                image: ghcr.io/${GHCR_OWNER}/digital-canvas-web:${TAG}
+                ports:
+                  - "${WEB_PORT}:3000"
+                depends_on:
+                  - http-backend
+                  - ws-backend
+            EOF
+
+            docker compose -p ${PROJECT} -f /tmp/${PROJECT}.yml pull
+            docker compose -p ${PROJECT} -f /tmp/${PROJECT}.yml up -d --remove-orphans
+
+      - name: Compute preview ports
+        id: ports
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          echo "web=$((PR + 4000))" >> "$GITHUB_OUTPUT"
+          echo "http=$((PR + 9000))" >> "$GITHUB_OUTPUT"
+          echo "ws=$((PR + 10000))" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-deploy
+          message: |
+            ## 🚀 Preview Deployment
+
+            | Service | URL |
+            |---------|-----|
+            | **Web** | `http://${{ secrets.STAGING_SSH_HOST }}:${{ steps.ports.outputs.web }}` |
+            | **HTTP API** | `http://${{ secrets.STAGING_SSH_HOST }}:${{ steps.ports.outputs.http }}` |
+            | **WebSocket** | `ws://${{ secrets.STAGING_SSH_HOST }}:${{ steps.ports.outputs.ws }}` |
+
+            > Deployed from commit ${{ github.event.pull_request.head.sha }}
+
+  # ── Teardown preview on PR close ──
+  teardown-preview:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Teardown preview via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          host: ${{ secrets.STAGING_SSH_HOST }}
+          username: ${{ secrets.STAGING_SSH_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: PR_NUMBER
+          script: |
+            PROJECT="digital-canvas-preview-${PR_NUMBER}"
+
+            # Tear down all containers for this preview
+            docker compose -p ${PROJECT} -f /tmp/${PROJECT}.yml down --remove-orphans 2>/dev/null || true
+
+            # Clean up compose file
+            rm -f /tmp/${PROJECT}.yml
+
+            # Remove preview images
+            docker image prune -f
+
+      - name: Update PR comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: preview-deploy
+          message: |
+            ## 🏁 Preview Deployment Torn Down
+
+            The preview environment for this PR has been cleaned up.

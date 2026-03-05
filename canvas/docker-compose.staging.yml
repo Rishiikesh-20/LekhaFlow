@@ -1,0 +1,23 @@
+## ─────────────────────────────────────────────
+## Docker Compose — Staging Override
+## Usage:
+##   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+## ─────────────────────────────────────────────
+
+services:
+  http-backend:
+    image: ghcr.io/${GHCR_OWNER:-anusanth26}/digital-canvas-http-backend:staging
+    environment:
+      NODE_ENV: staging
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+
+  ws-backend:
+    image: ghcr.io/${GHCR_OWNER:-anusanth26}/digital-canvas-ws-backend:staging
+    environment:
+      NODE_ENV: staging
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+
+  web:
+    image: ghcr.io/${GHCR_OWNER:-anusanth26}/digital-canvas-web:staging
