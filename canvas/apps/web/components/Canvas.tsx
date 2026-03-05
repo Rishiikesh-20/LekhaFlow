@@ -74,6 +74,7 @@ import type { GhostPreview } from "../hooks/useGhostPreviews";
 import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
+import { beautifyElements } from "../lib/beautify";
 import {
 	type BrushPoint,
 	getBrush,
@@ -114,6 +115,7 @@ import {
 import { ActivitySidebar } from "./canvas/ActivitySidebar";
 import { AiChatSidebar } from "./canvas/AiChatSidebar";
 import { AttributionTooltip } from "./canvas/AttributionTooltip";
+import { BeautifyButton } from "./canvas/BeautifyButton";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
@@ -1868,6 +1870,59 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setContextMenu((prev) => ({ ...prev, visible: false }));
 	}, []);
 
+	// ─────────────────────────────────────────────────────────────────
+	// BEAUTIFY — Smart Sketch Beautification (Story 3)
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * Whether the Beautify button should be visible.
+	 * Shown when at least one selected element is a freedraw stroke.
+	 */
+	const showBeautifyButton = useMemo(() => {
+		if (selectedElementIds.size === 0) return false;
+		return elements.some(
+			(el) => selectedElementIds.has(el.id) && el.type === "freedraw",
+		);
+	}, [selectedElementIds, elements]);
+
+	/**
+	 * Handle beautify: detect shapes from selected freedraw strokes and
+	 * replace them with clean geometric elements.
+	 */
+	const handleBeautify = useCallback(() => {
+		if (isReadOnly) return;
+		const selectedEls = elements.filter((el) => selectedElementIds.has(el.id));
+		if (selectedEls.length === 0) return;
+
+		const { removedIds, newElements } = beautifyElements(
+			selectedEls,
+			getNextZIndex,
+		);
+
+		if (removedIds.length === 0) return;
+
+		// Remove old freedraw strokes
+		deleteElements(removedIds);
+
+		// Add new clean shapes
+		const newIds = new Set<string>();
+		for (const el of newElements) {
+			addElement(el);
+			newIds.add(el.id);
+		}
+
+		// Select the new elements
+		setSelectedElementIds(newIds);
+	}, [
+		isReadOnly,
+		elements,
+		selectedElementIds,
+		getNextZIndex,
+		deleteElements,
+		addElement,
+		setSelectedElementIds,
+	]);
+
 	/**
 	 * Handle delete from context menu
 	 */
@@ -1942,6 +1997,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					// In read-only mode, only allow hand tool
 					if (isReadOnly && tool !== "hand") return;
 					setActiveTool(tool);
+					return;
+				}
+
+				// Beautify: B key — convert selected freedraw to clean shapes
+				if (e.key.toLowerCase() === "b" && !isReadOnly) {
+					handleBeautify();
 					return;
 				}
 
@@ -2113,6 +2174,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		isReadOnly,
 		setReadOnly,
 		handleImportScene,
+		handleBeautify,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -3171,6 +3233,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			<HeaderRight />
 			<Toolbar />
 			<PropertiesPanel />
+			<BeautifyButton
+				visible={showBeautifyButton}
+				onBeautify={handleBeautify}
+			/>
 			<ZoomControls
 				undo={undo}
 				redo={redo}
