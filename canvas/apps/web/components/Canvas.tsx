@@ -74,6 +74,7 @@ import type { GhostPreview } from "../hooks/useGhostPreviews";
 import { useGhostPreviews } from "../hooks/useGhostPreviews";
 import { useViewportPersistence } from "../hooks/useViewportPersistence";
 import { useYjsSync } from "../hooks/useYjsSync";
+import { beautifyElements } from "../lib/beautify";
 import {
 	type BrushPoint,
 	getBrush,
@@ -85,6 +86,7 @@ import {
 	SprayRasterEngine,
 	setActiveSprayEngine,
 } from "../lib/brushes/spray-raster";
+import { classifyDiagram, type DiagramType } from "../lib/diagram-classifier";
 import {
 	createArrow,
 	createFreedraw,
@@ -116,11 +118,15 @@ import {
 	useElementsArray,
 } from "../store/canvas-store";
 import { ActivitySidebar } from "./canvas/ActivitySidebar";
+import { AiChatSidebar } from "./canvas/AiChatSidebar";
 import { AttributionTooltip } from "./canvas/AttributionTooltip";
+import { BeautifyButton } from "./canvas/BeautifyButton";
 import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
 import { DebugOverlay } from "./canvas/DebugOverlay";
+import { DiagramIntentBadge } from "./canvas/DiagramIntentBadge";
+import { DocumentationModal } from "./canvas/DocumentationModal";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
@@ -1061,6 +1067,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		scrollX,
 		scrollY,
 		setScroll,
+		setZoom,
 		isDrawing,
 		setIsDrawing,
 		isDragging,
@@ -1083,21 +1090,20 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const collaborators = useCollaboratorsArray();
 
 	// Helper to get the next zIndex for new elements (always on top)
+	// Uses elementsRef to avoid re-creating downstream callbacks on every element change
 	const getNextZIndex = useCallback(() => {
-		if (elements.length === 0) return 1;
-		return Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
-	}, [elements]);
+		const els = elementsRef.current;
+		if (els.length === 0) return 1;
+		return Math.max(...els.map((el) => el.zIndex || 0)) + 1;
+	}, []);
 
 	// ─────────────────────────────────────────────────────────────────
 	// GHOST PREVIEW BROADCASTING
-	// Broadcasts current drawing state to remote users via awareness
+	// Broadcasts current drawing state as a ghost preview to remote users.
+	// Uses Y.js awareness (NOT Y.Doc) — no document writes.
+	// Throttled internally by useGhostPreviews hook (16ms / ~60fps).
 	// ─────────────────────────────────────────────────────────────────
 
-	/**
-	 * Broadcasts current drawing state as a ghost preview to remote users.
-	 * Uses Y.js awareness (NOT Y.Doc) — no document writes.
-	 * Throttled internally by useGhostPreviews hook (16ms / ~60fps).
-	 */
 	const broadcastDrawingPreview = useCallback(
 		(element: Record<string, unknown> & { type?: string }) => {
 			if (!element.type) return;
@@ -1395,10 +1401,21 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		"png",
 	);
 
+	// Documentation modal state (Story 4)
+	const [showDocModal, setShowDocModal] = useState(false);
+
+	// Diagram Intent State (Story 5)
+	const [diagramIntent, setDiagramIntent] = useState<DiagramType>("Generic");
+
 	// Handle export from sidebar menu
 	const handleExport = useCallback((format: "png" | "svg" | "json") => {
 		setExportFormat(format);
 		setShowExportModal(true);
+	}, []);
+
+	// Handle documentation generation (Story 4)
+	const handleExportDocumentation = useCallback(() => {
+		setShowDocModal(true);
 	}, []);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -1413,10 +1430,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Import JSON scene
 	const handleImportScene = useCallback(() => {
+		const els = elementsRef.current;
 		const nextZ =
-			elements.length === 0
-				? 1
-				: Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
+			els.length === 0 ? 1 : Math.max(...els.map((el) => el.zIndex || 0)) + 1;
 
 		importSceneFromFile(addElement, nextZ).then((result) => {
 			if (result.success) {
@@ -1426,7 +1442,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				window.alert(`Import failed: ${result.error}`);
 			}
 		});
-	}, [elements, addElement]);
+	}, [addElement]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// AUTO-CAPTURE THUMBNAIL for dashboard preview
@@ -1509,6 +1525,18 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// ─────────────────────────────────────────────────────────────────
 	// EFFECTS
 	// ─────────────────────────────────────────────────────────────────
+
+	// Background Diagram Classifier (Story 5)
+	useEffect(() => {
+		// Debounce classification to avoid doing it purely on every keystroke/drag tick
+		const timer = setTimeout(() => {
+			const activeElements = elements.filter((el) => !el.isDeleted);
+			const intent = classifyDiagram(activeElements);
+			setDiagramIntent(intent);
+		}, 1000);
+
+		return () => clearTimeout(timer);
+	}, [elements]);
 
 	// Set container dimensions
 	useEffect(() => {
@@ -1728,8 +1756,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Mirror a Map of elements by id for cheap O(1) lookups in effects and callbacks
 	const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
+	// Keep a ref copy of the sorted elements array so hot-path callbacks
+	// (handleMouseMove, handleMouseDown, etc.) can read the latest elements
+	// without re-creating closures on every element change.
+	const elementsRef = useRef<CanvasElement[]>(elements);
 	useEffect(() => {
 		elementsMapRef.current = new Map(elements.map((e) => [e.id, e]));
+		elementsRef.current = elements;
 	}, [elements]);
 
 	// Sync selected freedraw element's appearance back to the panel tools so
@@ -1796,10 +1829,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
-		window.addEventListener("keyup", handleKeyUp);
-
 		return () => {
-			window.removeEventListener("keydown", handleKeyDown);
+			window.removeEventListener("keydown", handleKeyUp);
 			window.removeEventListener("keyup", handleKeyUp);
 		};
 	}, []);
@@ -1942,42 +1973,27 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleBringForward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
+		const els = elementsRef.current;
 
-		// elements is already sorted by zIndex ascending
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		if (selected.length === 0 || unselected.length === 0) return;
+		// Process each selected element
+		Array.from(selectedElementIds).forEach((id) => {
+			const currentIndex = els.findIndex((el) => el.id === id);
+			if (currentIndex === -1 || currentIndex === els.length - 1) return; // Already on top or not found
 
-		// Find insertion index: count unselected elements below lowest selected
-		let insertIdx = 0;
-		const firstSelected = selected[0];
-		if (!firstSelected) return;
-		const lowestSelectedIdx = elements.indexOf(firstSelected);
-		for (let i = 0; i < lowestSelectedIdx; i++) {
-			const el = elements[i];
-			if (el && !selectedElementIds.has(el.id)) insertIdx++;
-		}
+			const currentElement = els[currentIndex];
+			const elementAbove = els[currentIndex + 1];
 
-		// Move one step up (past one unselected element)
-		if (insertIdx >= unselected.length) return; // already at top
-		insertIdx = Math.min(insertIdx + 1, unselected.length);
+			if (!currentElement || !elementAbove) return;
 
-		const newOrder = [
-			...unselected.slice(0, insertIdx),
-			...selected,
-			...unselected.slice(insertIdx),
-		];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
+			// Swap zIndex values with element above
+			const currentZ = currentElement.zIndex ?? currentIndex;
+			const aboveZ = elementAbove.zIndex ?? currentIndex + 1;
+
+			// Swap: current gets higher, above gets lower
+			updateElement(id, { zIndex: aboveZ });
+			updateElement(elementAbove.id, { zIndex: currentZ });
+		});
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Send selected elements backward one level.
@@ -1985,41 +2001,27 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleSendBackward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
+		const els = elementsRef.current;
 
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		if (selected.length === 0 || unselected.length === 0) return;
+		// Process each selected element
+		Array.from(selectedElementIds).forEach((id) => {
+			const currentIndex = els.findIndex((el) => el.id === id);
+			if (currentIndex <= 0) return; // Already at back or not found
 
-		// Find insertion index: count unselected elements below lowest selected
-		let insertIdx = 0;
-		const firstSelected = selected[0];
-		if (!firstSelected) return;
-		const lowestSelectedIdx = elements.indexOf(firstSelected);
-		for (let i = 0; i < lowestSelectedIdx; i++) {
-			const el = elements[i];
-			if (el && !selectedElementIds.has(el.id)) insertIdx++;
-		}
+			const currentElement = els[currentIndex];
+			const elementBelow = els[currentIndex - 1];
 
-		// Move one step down (past one unselected element below)
-		if (insertIdx <= 0) return; // already at back
-		insertIdx = Math.max(insertIdx - 1, 0);
+			if (!currentElement || !elementBelow) return;
 
-		const newOrder = [
-			...unselected.slice(0, insertIdx),
-			...selected,
-			...unselected.slice(insertIdx),
-		];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
+			// Swap zIndex values with element below
+			const currentZ = currentElement.zIndex ?? currentIndex;
+			const belowZ = elementBelow.zIndex ?? currentIndex - 1;
+
+			// Swap: current gets lower, below gets higher
+			updateElement(id, { zIndex: belowZ });
+			updateElement(elementBelow.id, { zIndex: currentZ });
+		});
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Bring selected elements to front (highest z-index).
@@ -2028,21 +2030,17 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleBringToFront = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		// New order: all unselected first, then selected block on top
-		const newOrder = [...unselected, ...selected];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
+		const maxZ = Math.max(
+			...elementsRef.current.map((el) => el.zIndex || 0),
+			0,
+		);
+
+		let nextZ = maxZ + 1;
+		Array.from(selectedElementIds).forEach((id) => {
+			updateElement(id, { zIndex: nextZ });
+			nextZ++;
+		});
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Send selected elements to back (lowest z-index).
@@ -2051,21 +2049,18 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleSendToBack = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		// New order: selected block at bottom, then all unselected
-		const newOrder = [...selected, ...unselected];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
+		const minZ = Math.min(
+			...elementsRef.current.map((el) => el.zIndex || 0),
+			0,
+		);
+
+		// Set selected elements to zIndex below the minimum
+		let nextZ = minZ - selectedElementIds.size;
+		Array.from(selectedElementIds).forEach((id) => {
+			updateElement(id, { zIndex: nextZ });
+			nextZ++;
+		});
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Handle context menu (right-click)
@@ -2107,6 +2102,60 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setContextMenu((prev) => ({ ...prev, visible: false }));
 	}, []);
 
+	// ─────────────────────────────────────────────────────────────────
+	// BEAUTIFY — Smart Sketch Beautification (Story 3)
+	// ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * Whether the Beautify button should be visible.
+	 * Shown when at least one selected element is a freedraw stroke.
+	 */
+	const showBeautifyButton = useMemo(() => {
+		if (selectedElementIds.size === 0) return false;
+		return elementsRef.current.some(
+			(el) => selectedElementIds.has(el.id) && el.type === "freedraw",
+		);
+	}, [selectedElementIds]);
+
+	/**
+	 * Handle beautify: detect shapes from selected freedraw strokes and
+	 * replace them with clean geometric elements.
+	 */
+	const handleBeautify = useCallback(() => {
+		if (isReadOnly) return;
+		const selectedEls = elementsRef.current.filter((el) =>
+			selectedElementIds.has(el.id),
+		);
+		if (selectedEls.length === 0) return;
+
+		const { removedIds, newElements } = beautifyElements(
+			selectedEls,
+			getNextZIndex,
+		);
+
+		if (removedIds.length === 0) return;
+
+		// Remove old freedraw strokes
+		deleteElements(removedIds);
+
+		// Add new clean shapes
+		const newIds = new Set<string>();
+		for (const el of newElements) {
+			addElement(el);
+			newIds.add(el.id);
+		}
+
+		// Select the new elements
+		setSelectedElementIds(newIds);
+	}, [
+		isReadOnly,
+		selectedElementIds,
+		getNextZIndex,
+		deleteElements,
+		addElement,
+		setSelectedElementIds,
+	]);
+
 	/**
 	 * Handle delete from context menu
 	 */
@@ -2121,7 +2170,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 * Clear all elements from canvas
 	 */
 	const handleClearCanvas = useCallback(() => {
-		if (elements.length === 0) return;
+		const els = elementsRef.current;
+		if (els.length === 0) return;
 
 		// Confirm before clearing
 		if (
@@ -2129,11 +2179,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				"Are you sure you want to clear the entire canvas? This cannot be undone.",
 			)
 		) {
-			const allIds = elements.map((el) => el.id);
+			const allIds = els.map((el) => el.id);
 			deleteElements(allIds);
 			clearSelection();
 		}
-	}, [elements, deleteElements, clearSelection]);
+	}, [deleteElements, clearSelection]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// KEYBOARD SHORTCUTS
@@ -2181,6 +2231,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					// In read-only mode, only allow hand tool
 					if (isReadOnly && tool !== "hand") return;
 					setActiveTool(tool);
+					return;
+				}
+
+				// Beautify: B key — convert selected freedraw to clean shapes
+				if (e.key.toLowerCase() === "b" && !isReadOnly) {
+					handleBeautify();
 					return;
 				}
 
@@ -2352,6 +2408,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		isReadOnly,
 		setReadOnly,
 		handleImportScene,
+		handleBeautify,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -2388,6 +2445,55 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 *    - Drawing: Start new element
 	 *    - Hand: Start panning
 	 */
+	// ─────────────────────────────────────────────────────────────────
+	// WHEEL HANDLER - Zoom (Ctrl/Meta + scroll) & Pan (plain scroll)
+	// ─────────────────────────────────────────────────────────────────
+	const handleWheel = useCallback(
+		(e: KonvaEventObject<WheelEvent>) => {
+			e.evt.preventDefault();
+
+			const stage = stageRef.current;
+			if (!stage) return;
+
+			const isZoom = e.evt.ctrlKey || e.evt.metaKey;
+
+			if (isZoom) {
+				// ── Pinch-to-zoom / Ctrl+scroll ──
+				const scaleBy = 1.05;
+				const oldZoom = zoom;
+
+				// Determine new zoom direction
+				const direction = e.evt.deltaY > 0 ? -1 : 1;
+				const newZoom = Math.max(
+					0.1,
+					Math.min(5, direction > 0 ? oldZoom * scaleBy : oldZoom / scaleBy),
+				);
+
+				// Get pointer position relative to the stage container
+				const pointer = stage.getPointerPosition();
+				if (!pointer) return;
+
+				// Compute new scroll so the point under the cursor stays fixed
+				const mousePointTo = {
+					x: (pointer.x - scrollX) / oldZoom,
+					y: (pointer.y - scrollY) / oldZoom,
+				};
+
+				const newScrollX = pointer.x - mousePointTo.x * newZoom;
+				const newScrollY = pointer.y - mousePointTo.y * newZoom;
+
+				setZoom(newZoom);
+				setScroll(newScrollX, newScrollY);
+			} else {
+				// ── Regular scroll → pan ──
+				const dx = e.evt.deltaX;
+				const dy = e.evt.deltaY;
+				setScroll(scrollX - dx, scrollY - dy);
+			}
+		},
+		[zoom, scrollX, scrollY, setZoom, setScroll],
+	);
+
 	const handleMouseDown = useCallback(
 		(e: KonvaEventObject<MouseEvent>) => {
 			const point = getCanvasPoint(e);
@@ -2883,7 +2989,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					} as CanvasElement);
 					// Broadcast ghost preview to remote users
 					broadcastDrawingPreview({
-						...lineElement,
+						...drawingElement,
 						points: newPoints,
 						width: Math.abs(dx),
 						height: Math.abs(dy),
@@ -3702,36 +3808,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	}, [updateCursor]);
 
 	// ─────────────────────────────────────────────────────────────────
-	// MEMOISED COMMITTED ELEMENTS (Phase 6)
-	// Re-compute render output only when elements, selection, or
-	// relevant handlers change — NOT on every drawingElement update.
-	// ─────────────────────────────────────────────────────────────────
-
-	const committedElements = useMemo(
-		() =>
-			elements.map((element) =>
-				renderElement(
-					element,
-					selectedElementIds.has(element.id),
-					activeTool === "selection" &&
-						!rotatingElement &&
-						selectedElementIds.size <= 1,
-					false,
-					handleElementDragEnd,
-					handleJointDrag,
-				),
-			),
-		[
-			elements,
-			selectedElementIds,
-			activeTool,
-			rotatingElement,
-			handleElementDragEnd,
-			handleJointDrag,
-		],
-	);
-
-	// ─────────────────────────────────────────────────────────────────
 	// RENDER
 	// ─────────────────────────────────────────────────────────────────
 
@@ -3822,16 +3898,24 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				onClearCanvas={handleClearCanvas}
 				onExport={handleExport}
 				onImportJson={handleImportScene}
+				onExportDocumentation={handleExportDocumentation}
 			/>
 			<HeaderRight />
 			<Toolbar />
 			<PropertiesPanel />
+			<BeautifyButton
+				visible={showBeautifyButton}
+				onBeautify={handleBeautify}
+			/>
 			<ZoomControls
 				undo={undo}
 				redo={redo}
 				canUndo={canUndo}
 				canRedo={canRedo}
 			/>
+
+			{/* Diagram Intent Classification Badge (Story 5) */}
+			<DiagramIntentBadge intent={diagramIntent} />
 
 			{/* Phase 0 — Debug & Perf overlays */}
 			<DebugOverlay
@@ -3863,6 +3947,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				scaleY={zoom}
 				x={scrollX}
 				y={scrollY}
+				onWheel={handleWheel}
 				onMouseDown={handleMouseDown}
 				onMouseMove={handleMouseMove}
 				onMouseUp={handleMouseUp}
@@ -3885,14 +3970,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						renderElement(
 							element,
 							selectedElementIds.has(element.id),
-							activeTool === "selection" && selectedElementIds.size <= 1,
+							activeTool === "selection" &&
+								!rotatingElement &&
+								selectedElementIds.size <= 1,
 							false, // not preview
 							handleElementDragEnd,
 							handleJointDrag,
 						),
 					)}
-					{/* Render existing elements (memoised — Phase 6) */}
-					{committedElements}
 
 					{/* Render element being drawn */}
 					{drawingElement &&
@@ -4138,8 +4223,18 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				initialFormat={exportFormat}
 			/>
 
+			{/* Documentation Modal (Story 4) */}
+			<DocumentationModal
+				isOpen={showDocModal}
+				onClose={() => setShowDocModal(false)}
+				stageRef={stageRef}
+			/>
+
 			{/* Activity Log Sidebar */}
 			<ActivitySidebar />
+
+			{/* AI Chat Sidebar */}
+			<AiChatSidebar stageRef={stageRef} />
 
 			{/* Named Versions Sidebar */}
 			<VersionsPanel

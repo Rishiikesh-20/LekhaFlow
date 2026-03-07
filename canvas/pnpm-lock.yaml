@@ -87,6 +87,9 @@ importers:
       '@fontsource/cal-sans':
         specifier: ^5.2.3
         version: 5.2.3
+      '@google/generative-ai':
+        specifier: ^0.24.1
+        version: 0.24.1
       '@hocuspocus/provider':
         specifier: ^2.14.0
         version: 2.15.3(y-protocols@1.0.7(yjs@13.6.29))(yjs@13.6.29)
@@ -809,6 +812,10 @@ packages:
 
   '@fontsource/cal-sans@5.2.3':
     resolution: {integrity: sha512-cY9d2LWfzzge3jSgh2IJmNEJdubuPnjfct/5Q/L/4Q5W9LlXRRZO403P0c3i1iPH4Y+IQ0gHgnJroPzL3KuxQQ==}
+
+  '@google/generative-ai@0.24.1':
+    resolution: {integrity: sha512-MqO+MLfM6kjxcKoy0p1wRzG3b4ZZXtPI+z2IE26UogS2Cm/XHO+7gGRBh6gcJsOiIVoH93UwKvW4HdgiOZCy9Q==}
+    engines: {node: '>=18.0.0'}
 
   '@hocuspocus/common@2.15.3':
     resolution: {integrity: sha512-Rzh1HF0a2o/tf90A3w2XNdXd9Ym3aQzMDfD3lAUONCX9B9QOdqdyiORrj6M25QEaJrEIbXFy8LtAFcL0wRdWzA==}
@@ -4070,6 +4077,8 @@ snapshots:
       '@noble/hashes': 1.8.0
 
   '@fontsource/cal-sans@5.2.3': {}
+
+  '@google/generative-ai@0.24.1': {}
 
   '@hocuspocus/common@2.15.3':
     dependencies:

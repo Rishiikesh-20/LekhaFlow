@@ -12,14 +12,14 @@ export const globalErrorHandler = (
 
 	if (err instanceof HttpError) {
 		res.status(err.statusCode).json({
-			code: err.statusCode,
+			success: false,
 			message: err.message,
 		});
 		return;
 	}
 
 	res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-		code: StatusCodes.INTERNAL_SERVER_ERROR,
+		success: false,
 		message: "Internal Server Error",
 	});
 };

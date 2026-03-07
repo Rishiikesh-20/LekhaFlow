@@ -3,12 +3,12 @@ import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
 import { createServiceClient } from "../supabase.server";
 
-const serviceClient = createServiceClient();
+const getClient = () => createServiceClient();
 
 export const getTrashService = async (
 	userId: string,
 ): Promise<Tables<"canvases">[]> => {
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", userId)
@@ -27,7 +27,7 @@ export const restoreCanvasService = async (
 	userId: string,
 ): Promise<void> => {
 	// Verify canvas exists, is deleted, and belongs to user
-	const { data: canvas } = await serviceClient
+	const { data: canvas } = await getClient()
 		.from("canvases")
 		.select("id")
 		.eq("id", canvasId)
@@ -39,7 +39,7 @@ export const restoreCanvasService = async (
 		throw new HttpError("Item not found in trash", StatusCodes.NOT_FOUND);
 	}
 
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvases")
 		.update({ is_deleted: false, deleted_at: null })
 		.eq("id", canvasId)
@@ -55,7 +55,7 @@ export const purgeCanvasService = async (
 	userId: string,
 ): Promise<void> => {
 	// Verify canvas exists, is deleted, and belongs to user
-	const { data: canvas } = await serviceClient
+	const { data: canvas } = await getClient()
 		.from("canvases")
 		.select("id")
 		.eq("id", canvasId)
@@ -67,7 +67,7 @@ export const purgeCanvasService = async (
 		throw new HttpError("Item not found in trash", StatusCodes.NOT_FOUND);
 	}
 
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvases")
 		.delete()
 		.eq("id", canvasId)
