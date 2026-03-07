@@ -20,16 +20,7 @@
 import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 import { type NextRequest, NextResponse } from "next/server";
 
-// Allow larger request bodies for canvas screenshots (base64 PNG)
-export const config = {
-	api: {
-		bodyParser: {
-			sizeLimit: "10mb",
-		},
-	},
-};
-
-// Also set the Next.js App Router body size limit
+// Allow longer AI generation time
 export const maxDuration = 60; // seconds
 
 // ============================================================================
