@@ -53,3 +53,29 @@ export const MoveCanvasSchema = z.object({
 export type CreateFolderType = z.infer<typeof CreateFolderSchema>;
 export type MoveFolderType = z.infer<typeof MoveFolderSchema>;
 export type MoveCanvasType = z.infer<typeof MoveCanvasSchema>;
+
+// Tag schemas
+export const CreateTagSchema = z.object({
+	name: z.string().min(1, "Tag name is required").max(30),
+	color: z
+		.string()
+		.regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex code (e.g. #FF0000)")
+		.optional()
+		.default("#6D28D9"),
+});
+
+export const UpdateTagSchema = z.object({
+	name: z.string().min(1).max(30).optional(),
+	color: z
+		.string()
+		.regex(/^#[0-9A-Fa-f]{6}$/, "Color must be a valid hex code")
+		.optional(),
+});
+
+export const AssignTagSchema = z.object({
+	tagId: z.string().min(1, "Tag ID is required"),
+});
+
+export type CreateTagType = z.infer<typeof CreateTagSchema>;
+export type UpdateTagType = z.infer<typeof UpdateTagSchema>;
+export type AssignTagType = z.infer<typeof AssignTagSchema>;
