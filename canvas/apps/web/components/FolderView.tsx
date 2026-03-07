@@ -3,6 +3,7 @@
 import {
 	ArrowUpDown,
 	ChevronRight,
+	Clock,
 	File,
 	Folder,
 	FolderOpen,
@@ -65,6 +66,7 @@ export function FolderView() {
 	const [isSearchMode, setIsSearchMode] = useState(false);
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchTotal, setSearchTotal] = useState(0);
+	const [recentCanvases, setRecentCanvases] = useState<CanvasItem[]>([]);
 	const justDroppedRef = useRef(false);
 	const router = useRouter();
 
@@ -144,6 +146,29 @@ export function FolderView() {
 			fetchBreadcrumb();
 		}
 	}, [fetchContents, fetchBreadcrumb, isSearchMode]);
+
+	// Fetch recently accessed canvases (cached in local state)
+	useEffect(() => {
+		const fetchRecent = async () => {
+			const headers = await getAuthHeaders();
+			if (!headers) return;
+
+			try {
+				const res = await fetch(`${HTTP_URL}/api/v1/canvas/recent`, {
+					headers,
+				});
+				if (res.ok) {
+					const json = await res.json();
+					const data = json?.data ?? json;
+					setRecentCanvases(data.canvases ?? []);
+				}
+			} catch (e) {
+				console.error("Error fetching recent canvases:", e);
+			}
+		};
+
+		fetchRecent();
+	}, [getAuthHeaders]);
 
 	// Debounced search effect (300ms)
 	useEffect(() => {
@@ -412,6 +437,74 @@ export function FolderView() {
 
 	return (
 		<div className="space-y-4">
+			{/* Jump Back In — Recent Canvases */}
+			{!isSearchMode &&
+				currentFolderId === null &&
+				recentCanvases.length > 0 && (
+					<div className="mb-2">
+						<div className="flex items-center gap-2 mb-3">
+							<Clock size={16} className="text-violet-500" />
+							<h3 className="text-sm font-semibold text-gray-700">
+								Jump Back In
+							</h3>
+						</div>
+						<div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+							{recentCanvases.map((canvas) => (
+								<div
+									key={canvas.id}
+									role="button"
+									tabIndex={0}
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											router.push(`/canvas/${canvas.id}`);
+										}
+									}}
+									className="group flex-shrink-0 w-48 bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
+								>
+									{/* Compact Thumbnail */}
+									<div className="aspect-[16/9] bg-gray-50 relative overflow-hidden">
+										{canvas.thumbnail_url ? (
+											/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
+											<img
+												src={canvas.thumbnail_url}
+												alt={canvas.name || "Canvas preview"}
+												className="w-full h-full object-cover"
+												loading="lazy"
+											/>
+										) : (
+											<>
+												<div
+													className="absolute inset-0 opacity-[0.4]"
+													style={{
+														backgroundImage:
+															"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+														backgroundSize: "12px 12px",
+													}}
+												/>
+												<div className="w-full h-full flex items-center justify-center">
+													<File className="w-6 h-6 text-gray-300" />
+												</div>
+											</>
+										)}
+										<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
+									</div>
+									{/* Info */}
+									<div className="p-2.5">
+										<h4 className="font-medium text-xs text-gray-900 truncate">
+											{canvas.name || "Untitled"}
+										</h4>
+										<p className="text-[11px] text-gray-400 mt-0.5">
+											{formatDate(canvas.updated_at)}
+										</p>
+									</div>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
 			{/* Breadcrumb */}
 			<nav className="flex items-center gap-1 text-sm flex-wrap">
 				<button

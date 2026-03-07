@@ -7,7 +7,9 @@ import {
 	deleteCanvasService,
 	getCanvasesService,
 	getCanvasService,
+	getRecentCanvasesService,
 	searchCanvasesService,
+	touchCanvasAccessService,
 	updateCanvasService,
 } from "../services/canvas.js";
 
@@ -149,4 +151,37 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		"Search results retrieved successfully",
 		result,
 	);
+};
+
+export const getRecentCanvases = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const canvases = await getRecentCanvasesService(req.user.id);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		"Recent canvases retrieved successfully",
+		{
+			canvases,
+		},
+	);
+};
+
+export const touchCanvasAccess = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const { roomId } = req.params;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+
+	// Fire-and-forget: don't await
+	touchCanvasAccessService(roomId, req.user.id);
+
+	res.status(StatusCodes.NO_CONTENT).end();
 };

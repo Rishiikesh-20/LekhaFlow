@@ -288,3 +288,42 @@ export const searchCanvasesService = async (
 
 	return { canvases: paginatedCanvases, total, page, limit };
 };
+
+export const getRecentCanvasesService = async (
+	userId: string,
+	limit = 5,
+): Promise<Tables<"canvases">[]> => {
+	const { data, error } = await serviceClient
+		.from("canvases")
+		.select("*")
+		.eq("owner_id", userId)
+		.eq("is_deleted", false)
+		.not("last_accessed_at", "is", null)
+		.order("last_accessed_at", { ascending: false })
+		.limit(limit);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	return data || [];
+};
+
+export const touchCanvasAccessService = async (
+	canvasId: string,
+	userId: string,
+): Promise<void> => {
+	try {
+		await serviceClient
+			.from("canvases")
+			.update({ last_accessed_at: new Date().toISOString() })
+			.eq("id", canvasId)
+			.eq("owner_id", userId);
+	} catch (err) {
+		// Fire-and-forget: log but don't throw
+		console.error(
+			"[touchCanvasAccess] Failed to update last_accessed_at:",
+			err,
+		);
+	}
+};
