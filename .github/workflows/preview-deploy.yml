@@ -1,9 +1,10 @@
 name: PR Preview Deploy
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches: [dev, main]
+  workflow_dispatch: # Temporarily manual-only until staging VM is configured
+  # pull_request:
+  #   types: [opened, synchronize, reopened, closed]
+  #   branches: [dev, main]
 
 env:
   REGISTRY: ghcr.io
