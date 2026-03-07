@@ -48,7 +48,14 @@ export const getFolderContents = async (req: Request, res: Response) => {
 	}
 
 	const folderId = (req.query.folderId as string) || null;
-	const contents = await getFolderContentsService(req.user.id, folderId);
+	const sortBy = (req.query.sortBy as string) || undefined;
+	const order = (req.query.order as string) || undefined;
+	const contents = await getFolderContentsService(
+		req.user.id,
+		folderId,
+		sortBy,
+		order,
+	);
 
 	return JSONResponse(
 		res,

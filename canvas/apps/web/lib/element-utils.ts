@@ -739,11 +739,36 @@ export function getAllElementsAtPoint(
 }
 
 /**
- * Find all elements within a selection rectangle
+ * Normalize a rectangle so width/height are always positive.
+ * Handles marquee rects where the user dragged left/up.
+ */
+export function normalizeRect(rect: BoundingBox): BoundingBox {
+	return {
+		x: rect.width < 0 ? rect.x + rect.width : rect.x,
+		y: rect.height < 0 ? rect.y + rect.height : rect.y,
+		width: Math.abs(rect.width),
+		height: Math.abs(rect.height),
+	};
+}
+
+/**
+ * Check whether two axis-aligned bounding boxes intersect.
+ */
+export function rectsIntersect(a: BoundingBox, b: BoundingBox): boolean {
+	return (
+		a.x < b.x + b.width &&
+		a.x + a.width > b.x &&
+		a.y < b.y + b.height &&
+		a.y + a.height > b.y
+	);
+}
+
+/**
+ * Find all elements whose rotated AABB intersects a selection rectangle.
  *
- * @param selectionBox - Selection rectangle
+ * @param selectionBox - Selection rectangle (must be normalised)
  * @param elements - Array of elements
- * @returns Array of elements within selection
+ * @returns Array of intersecting, non-deleted elements
  */
 export function getElementsInSelection(
 	selectionBox: BoundingBox,
@@ -751,16 +776,8 @@ export function getElementsInSelection(
 ): CanvasElement[] {
 	return elements.filter((element) => {
 		if (element.isDeleted) return false;
-
-		const bounds = getElementBounds(element);
-
-		// Check if element bounds intersect with selection
-		return (
-			bounds.x < selectionBox.x + selectionBox.width &&
-			bounds.x + bounds.width > selectionBox.x &&
-			bounds.y < selectionBox.y + selectionBox.height &&
-			bounds.y + bounds.height > selectionBox.y
-		);
+		const bounds = getRotatedBoundingBox(element);
+		return rectsIntersect(selectionBox, bounds);
 	});
 }
 

@@ -65,6 +65,9 @@ interface UseYjsSyncReturn {
 	addElement: (element: CanvasElement) => void;
 	updateElement: (id: string, updates: Partial<CanvasElement>) => void;
 	updateElements: (updatesMap: Map<string, Partial<CanvasElement>>) => void;
+	batchUpdateElements: (
+		updates: Array<{ id: string; updates: Partial<CanvasElement> }>,
+	) => void;
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
@@ -450,6 +453,21 @@ export function useYjsSync(
 							updated: Date.now(),
 						} as CanvasElement);
 					}
+	const batchUpdateElements = useCallback(
+		(updates: Array<{ id: string; updates: Partial<CanvasElement> }>) => {
+			const yElements = getYElements();
+			const now = Date.now();
+			doc.transact(() => {
+				for (const { id, updates: partial } of updates) {
+					const existing = yElements.get(id);
+					if (!existing) continue;
+					yElements.set(id, {
+						...existing,
+						...partial,
+						lastModifiedBy: myNameRef.current,
+						version: (existing.version || 0) + 1,
+						updated: now,
+					} as CanvasElement);
 				}
 			});
 		},
@@ -541,6 +559,7 @@ export function useYjsSync(
 		addElement,
 		updateElement,
 		updateElements,
+		batchUpdateElements,
 		deleteElements,
 		updateCursor,
 		updateSelection,

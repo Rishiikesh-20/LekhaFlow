@@ -27,6 +27,7 @@ vi.mock("../services/canvas.js", () => ({
 	getCanvasService: vi.fn(),
 	updateCanvasService: vi.fn(),
 	deleteCanvasService: vi.fn(),
+	searchCanvasesService: vi.fn(),
 }));
 
 import { globalErrorHandler } from "../error/error";
@@ -36,6 +37,7 @@ import {
 	deleteCanvasService,
 	getCanvasesService,
 	getCanvasService,
+	searchCanvasesService,
 	updateCanvasService,
 } from "../services/canvas.js";
 import { createServiceClient } from "../supabase.server";
@@ -46,6 +48,7 @@ const getCanvasServiceMock = getCanvasService as Mock;
 const updateCanvasServiceMock = updateCanvasService as Mock;
 const deleteCanvasServiceMock = deleteCanvasService as Mock;
 const createCanvasServiceMock = createCanvasService as Mock;
+const searchCanvasesServiceMock = searchCanvasesService as Mock;
 
 const createTestApp = () => {
 	const app = express();
@@ -363,5 +366,90 @@ describe("POST /api/v1/canvas/create-canvas — Validation", () => {
 			.send({ name: "Test" });
 
 		expect(res.status).toBe(201);
+	});
+});
+
+// ============================================================================
+// GET /api/v1/canvas/search — Search canvases
+// ============================================================================
+
+describe("GET /api/v1/canvas/search", () => {
+	let app: express.Express;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		app = createTestApp();
+	});
+
+	it("returns 401 without auth header", async () => {
+		const res = await request(app).get("/api/v1/canvas/search");
+		expect(res.status).toBe(401);
+	});
+
+	it("returns search results for a given query", async () => {
+		mockAuthSuccess("user-123");
+		searchCanvasesServiceMock.mockResolvedValue({
+			canvases: [{ id: "c1", name: "Architecture 2024", owner_id: "user-123" }],
+			total: 1,
+			page: 1,
+			limit: 20,
+		});
+
+		const res = await request(app)
+			.get("/api/v1/canvas/search?q=Arch")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(res.status).toBe(200);
+		expect(res.body.data.canvases).toHaveLength(1);
+		expect(res.body.data.canvases[0].name).toBe("Architecture 2024");
+		expect(res.body.data.total).toBe(1);
+		expect(searchCanvasesServiceMock).toHaveBeenCalledWith("user-123", {
+			q: "Arch",
+			sortBy: "createdAt",
+			order: "desc",
+			page: 1,
+			limit: 20,
+		});
+	});
+
+	it("passes sort and order params correctly", async () => {
+		mockAuthSuccess();
+		searchCanvasesServiceMock.mockResolvedValue({
+			canvases: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		});
+
+		await request(app)
+			.get("/api/v1/canvas/search?q=test&sortBy=title&order=asc")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(searchCanvasesServiceMock).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({
+				q: "test",
+				sortBy: "title",
+				order: "asc",
+			}),
+		);
+	});
+
+	it("returns empty results when no matches found", async () => {
+		mockAuthSuccess();
+		searchCanvasesServiceMock.mockResolvedValue({
+			canvases: [],
+			total: 0,
+			page: 1,
+			limit: 20,
+		});
+
+		const res = await request(app)
+			.get("/api/v1/canvas/search?q=nonexistent")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(res.status).toBe(200);
+		expect(res.body.data.canvases).toEqual([]);
+		expect(res.body.data.total).toBe(0);
 	});
 });

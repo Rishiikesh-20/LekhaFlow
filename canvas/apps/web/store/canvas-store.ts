@@ -249,6 +249,11 @@ interface CanvasActions {
 	/** Update an existing element */
 	updateElement: (id: string, updates: Partial<CanvasElement>) => void;
 
+	/** Update multiple elements in a single store update (no intermediate re-renders) */
+	batchUpdateElements: (
+		updates: Array<{ id: string; updates: Partial<CanvasElement> }>,
+	) => void;
+
 	/** Delete elements by IDs */
 	deleteElements: (ids: string[]) => void;
 
@@ -518,6 +523,18 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
 				const newElements = new Map(state.elements);
 				newElements.set(id, { ...element, ...updates } as CanvasElement);
+				return { elements: newElements };
+			}),
+
+		batchUpdateElements: (updates) =>
+			set((state) => {
+				const newElements = new Map(state.elements);
+				for (const { id, updates: partial } of updates) {
+					const element = newElements.get(id);
+					if (element) {
+						newElements.set(id, { ...element, ...partial } as CanvasElement);
+					}
+				}
 				return { elements: newElements };
 			}),
 
