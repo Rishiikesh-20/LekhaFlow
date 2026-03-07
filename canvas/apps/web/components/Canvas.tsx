@@ -1224,6 +1224,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// Keyboard modifiers for shape creation
 	const [shiftPressed, setShiftPressed] = useState(false);
 	const [altPressed, setAltPressed] = useState(false);
+	// Tracks whether Space is held for temporary pan mode (like Excalidraw/Figma)
+	const spacePressedRef = useRef(false);
 
 	// Text editing state
 	const [editingText, setEditingText] = useState<{
@@ -1552,6 +1554,117 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		};
 	}, []);
 
+	// ── Wheel / pinch handler: zoom & pan ──
+	// Strategy:
+	//  • Pinch (ctrlKey+wheel, trackpad): Apply zoom IMMEDIATELY per event for
+	//    smooth real-time pinch feel. No batching — batching causes deltas to
+	//    cancel out or misfire on Linux trackpads.
+	//  • Mouse Ctrl+scroll: large deltaY → rAF-batched single step to prevent
+	//    jumping multiple zoom levels in one perceived click.
+	//  • Two-finger scroll (no modifier): pan the canvas.
+	useEffect(() => {
+		// rAF batching only for coarse mouse scroll (large deltaY)
+		let mouseZoomRafId: number | null = null;
+		let mousePendingClientX = 0;
+		let mousePendingClientY = 0;
+		let mousePendingDirection = 0; // +1 = zoom in, -1 = zoom out
+
+		const flushMouseZoom = () => {
+			mouseZoomRafId = null;
+			const container = containerRef.current;
+			if (!container) return;
+			const { zoom, scrollX, scrollY, setZoom, setScroll } =
+				useCanvasStore.getState();
+			const rect = container.getBoundingClientRect();
+			const px = mousePendingClientX - rect.left;
+			const py = mousePendingClientY - rect.top;
+			const newZoom = Math.max(
+				0.1,
+				Math.min(5, zoom * (mousePendingDirection > 0 ? 1.1 : 1 / 1.1)),
+			);
+			setZoom(newZoom);
+			setScroll(
+				px - (px - scrollX) * (newZoom / zoom),
+				py - (py - scrollY) * (newZoom / zoom),
+			);
+		};
+
+		const applyPinchZoom = (
+			deltaY: number,
+			clientX: number,
+			clientY: number,
+		) => {
+			const container = containerRef.current;
+			if (!container) return;
+			const { zoom, scrollX, scrollY, setZoom, setScroll } =
+				useCanvasStore.getState();
+			const rect = container.getBoundingClientRect();
+			// Check cursor is over canvas (use a loose bounds check)
+			if (
+				clientX < rect.left ||
+				clientX > rect.right ||
+				clientY < rect.top ||
+				clientY > rect.bottom
+			)
+				return;
+
+			const px = clientX - rect.left;
+			const py = clientY - rect.top;
+			// Smooth proportional zoom – factor tuned for trackpad pinch sensitivity
+			const factor = 1 - deltaY * 0.006;
+			const newZoom = Math.max(0.1, Math.min(5, zoom * factor));
+			setZoom(newZoom);
+			setScroll(
+				px - (px - scrollX) * (newZoom / zoom),
+				py - (py - scrollY) * (newZoom / zoom),
+			);
+		};
+
+		const onWheel = (e: WheelEvent) => {
+			if (e.ctrlKey || e.metaKey) {
+				// Always prevent browser zoom regardless of target
+				e.preventDefault();
+
+				// Distinguish trackpad pinch (small deltaY) from mouse Ctrl+scroll (large)
+				if (Math.abs(e.deltaY) < 40) {
+					// ── Trackpad pinch: apply immediately, no batching ──
+					applyPinchZoom(e.deltaY, e.clientX, e.clientY);
+				} else {
+					// ── Mouse Ctrl+scroll: single fixed step per rAF tick ──
+					const container = containerRef.current;
+					if (!container?.contains(e.target as Node)) return;
+					mousePendingClientX = e.clientX;
+					mousePendingClientY = e.clientY;
+					mousePendingDirection = e.deltaY > 0 ? -1 : 1;
+					if (!mouseZoomRafId) {
+						mouseZoomRafId = requestAnimationFrame(flushMouseZoom);
+					}
+				}
+			} else {
+				// ── Pan: two-finger scroll or plain mouse scroll ──
+				const container = containerRef.current;
+				if (!container?.contains(e.target as Node)) return;
+				e.preventDefault();
+				const { scrollX, scrollY, setScroll } = useCanvasStore.getState();
+				let dx = e.deltaX;
+				let dy = e.deltaY;
+				if (e.shiftKey) {
+					dx = dy;
+					dy = 0;
+				}
+				setScroll(scrollX - dx, scrollY - dy);
+			}
+		};
+
+		// Attach to window to catch all events including those originating
+		// from Konva canvas elements that may not bubble to containerRef
+		window.addEventListener("wheel", onWheel, { passive: false });
+		return () => {
+			window.removeEventListener("wheel", onWheel);
+			if (mouseZoomRafId) cancelAnimationFrame(mouseZoomRafId);
+		};
+	}, []);
+
 	// Update selection awareness when selection changes
 	useEffect(() => {
 		updateSelection(Array.from(selectedElementIds));
@@ -1664,16 +1777,22 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		});
 	}, [currentBrushType, updateElement]);
 
-	// Track keyboard modifiers for shape creation (Shift for aspect ratio, Alt for center scaling)
+	// Track keyboard modifiers for shape creation + space for temporary pan
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Shift") setShiftPressed(true);
 			if (e.key === "Alt") setAltPressed(true);
+			if (e.key === " ") {
+				spacePressedRef.current = true;
+				// Prevent page scroll when Space used for canvas pan
+				if (document.activeElement === document.body) e.preventDefault();
+			}
 		};
 
 		const handleKeyUp = (e: KeyboardEvent) => {
 			if (e.key === "Shift") setShiftPressed(false);
 			if (e.key === "Alt") setAltPressed(false);
+			if (e.key === " ") spacePressedRef.current = false;
 		};
 
 		window.addEventListener("keydown", handleKeyDown);
@@ -2274,6 +2393,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			const point = getCanvasPoint(e);
 			setInteractionStartPoint(point);
 
+			// Middle-click (button=1) or Space+click → start canvas pan immediately,
+			// regardless of active tool. Covers trackpad press-drag and Figma-style Space+drag.
+			if (e.evt.button === 1 || spacePressedRef.current) {
+				setIsDragging(true);
+				return;
+			}
+
 			// READ-ONLY MODE: Only allow hand tool panning
 			if (isReadOnly && activeTool !== "hand") {
 				return;
@@ -2346,8 +2472,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					if (allHits.length > 0) {
 						const topHit = allHits[0];
 						if (topHit) {
-							if (shiftPressed) {
-								// Shift+click: toggle element in/out of selection
+							if (shiftPressed || e.evt.ctrlKey || e.evt.metaKey) {
+								// Shift/Ctrl/Cmd+click: toggle element in/out of selection
 								if (selectedElementIds.has(topHit.id)) {
 									removeFromSelection([topHit.id]);
 								} else {
@@ -2361,9 +2487,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							setIsDragging(true);
 
 							// Initiate group move when multi-selected and clicked
-							// on an already-selected element (no shift toggle)
+							// on an already-selected element (no shift/ctrl toggle)
 							if (
 								!shiftPressed &&
+								!e.evt.ctrlKey &&
+								!e.evt.metaKey &&
 								selectedElementIds.size > 1 &&
 								selectedElementIds.has(topHit.id)
 							) {
@@ -2403,8 +2531,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 					// Clicked on empty canvas — start marquee drag
 					marqueeAnchorRef.current = point;
-					marqueeAdditiveRef.current = shiftPressed;
-					if (!shiftPressed) {
+					marqueeAdditiveRef.current =
+						shiftPressed || e.evt.ctrlKey || e.evt.metaKey;
+					if (!shiftPressed && !e.evt.ctrlKey && !e.evt.metaKey) {
 						clearSelection();
 					}
 					break;
@@ -2638,8 +2767,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				return;
 			}
 
-			// Handle hand tool panning
-			if (isDragging && activeTool === "hand" && interactionStartPoint) {
+			// Handle hand tool panning OR space+drag / middle-click panning
+			if (
+				isDragging &&
+				(activeTool === "hand" || spacePressedRef.current) &&
+				interactionStartPoint
+			) {
 				const dx = point.x - interactionStartPoint.x;
 				const dy = point.y - interactionStartPoint.y;
 				setScroll(scrollX + dx * zoom, scrollY + dy * zoom);
