@@ -13,6 +13,8 @@
  * - Multi-turn conversation with context
  * - Auto-refreshes canvas context on each question
  * - Markdown-like formatting for AI responses
+ * - **Action execution** — detects modification intents and applies them
+ *   directly on the canvas via the AI Modify pipeline
  */
 
 "use client";
@@ -26,8 +28,47 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	type ModifyAction,
+	parseAiModifications,
+	summarizeModifications,
+} from "../../lib/ai-modify-parser";
 import { serializeCanvasForAI } from "../../lib/canvas-serializer";
 import { useCanvasStore } from "../../store/canvas-store";
+
+// ============================================================================
+// ACTION INTENT DETECTION
+// ============================================================================
+
+/**
+ * Heuristic to detect whether a user message is requesting a canvas
+ * modification (action) rather than asking a question (Q&A).
+ *
+ * Returns `true` when the message looks like an imperative instruction
+ * such as "fill all circles with green" or "delete the red rectangles".
+ */
+function isActionIntent(message: string): boolean {
+	const lower = message.toLowerCase().trim();
+
+	// Strong action verbs that almost always signal a modification request
+	const actionVerbs =
+		/\b(change|fill|color|colour|paint|make|set|update|modify|resize|scale|move|shift|delete|remove|hide|enlarge|shrink|rotate|reposition|increase|decrease|brighten|darken|thicken|thin)\b/;
+
+	// Target indicators — shape types or "all/every/each"
+	const targetIndicators =
+		/\b(circle|ellipse|rectangle|square|diamond|arrow|line|text|shape|element|node|all|every|each|everything)\b/;
+
+	// Property references — color names, hex codes, dimensions
+	const propertyRefs =
+		/\b(red|blue|green|yellow|orange|purple|pink|black|white|gray|grey|cyan|magenta|transparent|opacity|stroke|border|background|width|height|size|bigger|smaller|thicker|thinner|bold|#[0-9a-fA-F]{3,8})\b/;
+
+	// Must have an action verb + at least one of (target OR property)
+	if (actionVerbs.test(lower)) {
+		return targetIndicators.test(lower) || propertyRefs.test(lower);
+	}
+
+	return false;
+}
 
 // ============================================================================
 // TYPES
@@ -91,6 +132,8 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 	const isOpen = useCanvasStore((s) => s.isAiChatOpen);
 	const setOpen = useCanvasStore((s) => s.setAiChatOpen);
 	const elements = useCanvasStore((s) => s.elements);
+	const updateElement = useCanvasStore((s) => s.updateElement);
+	const deleteElements = useCanvasStore((s) => s.deleteElements);
 
 	const [messages, setMessages] = useState<ChatMessage[]>([]);
 	const [input, setInputState] = useState("");
@@ -174,12 +217,6 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 			}
 		}
 
-		// Build conversation history for the API
-		const history = messages.map((msg) => ({
-			role: msg.role === "assistant" ? "model" : "user",
-			content: msg.content,
-		}));
-
 		// Add a placeholder for the AI response
 		const assistantId = generateId();
 		const assistantMessage: ChatMessage = {
@@ -192,44 +229,123 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 		setIsLoading(true);
 
 		try {
-			const response = await fetch("/api/ai-chat", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					question,
-					canvasContext,
-					canvasImage: canvasImageBase64,
-					history,
-				}),
-			});
+			// ── Determine intent: action vs question ──
+			const actionMode = isActionIntent(question);
 
-			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({}));
-				throw new Error(
-					errorData.error || `Request failed with status ${response.status}`,
-				);
-			}
+			if (actionMode) {
+				// ── ACTION PATH — call /api/ai-modify, apply diffs ──
+				const response = await fetch("/api/ai-modify", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						prompt: question,
+						canvasContext,
+						canvasImage: canvasImageBase64,
+					}),
+				});
 
-			// Read the stream
-			const reader = response.body?.getReader();
-			if (!reader) throw new Error("No response stream available");
+				if (!response.ok) {
+					const errorData = await response.json().catch(() => ({}));
+					throw new Error(
+						errorData.error ||
+							`Modification request failed with status ${response.status}`,
+					);
+				}
 
-			const decoder = new TextDecoder();
-			let fullText = "";
+				const data = await response.json();
+				const actions: ModifyAction[] = data.actions || [];
 
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
+				if (actions.length === 0) {
+					// No actionable modifications — fall back to a helpful message
+					setMessages((prev) =>
+						prev.map((msg) =>
+							msg.id === assistantId
+								? {
+										...msg,
+										content:
+											"I understood your request but couldn't determine specific modifications to make. Could you be more specific about which elements to change?",
+									}
+								: msg,
+						),
+					);
+					return;
+				}
 
-				const chunk = decoder.decode(value, { stream: true });
-				fullText += chunk;
+				// Parse actions into element diffs
+				const diffs = parseAiModifications(actions, elements);
 
-				// Update the assistant message with streamed content
+				// Apply the diffs to the canvas
+				const deleteIds: string[] = [];
+				for (const [id, diff] of diffs) {
+					if (diff.isDeleted) {
+						deleteIds.push(id);
+					} else {
+						updateElement(id, diff);
+					}
+				}
+				if (deleteIds.length > 0) {
+					deleteElements(deleteIds);
+				}
+
+				// Build confirmation message
+				const summaries = summarizeModifications(actions, elements);
+				const confirmationLines = summaries.map((s) => `• ${s.description}`);
+				const confirmationText = `Done! I've applied the following changes:\n\n${confirmationLines.join("\n")}`;
+
 				setMessages((prev) =>
 					prev.map((msg) =>
-						msg.id === assistantId ? { ...msg, content: fullText } : msg,
+						msg.id === assistantId
+							? { ...msg, content: confirmationText }
+							: msg,
 					),
 				);
+			} else {
+				// ── Q&A PATH — stream from /api/ai-chat ──
+				// Build conversation history for the API
+				const history = messages.map((msg) => ({
+					role: msg.role === "assistant" ? "model" : "user",
+					content: msg.content,
+				}));
+
+				const response = await fetch("/api/ai-chat", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						question,
+						canvasContext,
+						canvasImage: canvasImageBase64,
+						history,
+					}),
+				});
+
+				if (!response.ok) {
+					const errorData = await response.json().catch(() => ({}));
+					throw new Error(
+						errorData.error || `Request failed with status ${response.status}`,
+					);
+				}
+
+				// Read the stream
+				const reader = response.body?.getReader();
+				if (!reader) throw new Error("No response stream available");
+
+				const decoder = new TextDecoder();
+				let fullText = "";
+
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+
+					const chunk = decoder.decode(value, { stream: true });
+					fullText += chunk;
+
+					// Update the assistant message with streamed content
+					setMessages((prev) =>
+						prev.map((msg) =>
+							msg.id === assistantId ? { ...msg, content: fullText } : msg,
+						),
+					);
+				}
 			}
 		} catch (err) {
 			const errorMessage =
@@ -241,7 +357,16 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 		} finally {
 			setIsLoading(false);
 		}
-	}, [input, isLoading, elements, messages, setInput, stageRef]);
+	}, [
+		input,
+		isLoading,
+		elements,
+		messages,
+		setInput,
+		stageRef,
+		updateElement,
+		deleteElements,
+	]);
 
 	// Handle keyboard shortcuts
 	const handleKeyDown = useCallback(
@@ -405,7 +530,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 							placeholder={
 								elementCount === 0
 									? "Draw something first, then ask about it..."
-									: "Ask about your diagram..."
+									: "Ask about your diagram or tell me to change it..."
 							}
 							disabled={isLoading}
 							rows={1}
@@ -476,7 +601,7 @@ function EmptyState({
 			<p className="text-xs text-gray-400 mb-6 leading-relaxed">
 				{elementCount === 0
 					? "Your canvas is empty. Draw some shapes and connections, then ask me to explain the flow!"
-					: `I can see ${elementCount} element${elementCount !== 1 ? "s" : ""} on your canvas. Ask me anything about the structure, flow, or relationships.`}
+					: `I can see ${elementCount} element${elementCount !== 1 ? "s" : ""} on your canvas. Ask me anything or tell me to make changes!`}
 			</p>
 
 			{elementCount > 0 && (
@@ -486,11 +611,11 @@ function EmptyState({
 						onClick={onSuggestionClick}
 					/>
 					<SuggestionChip
-						text="Explain the flow step by step"
+						text="Make all circles green"
 						onClick={onSuggestionClick}
 					/>
 					<SuggestionChip
-						text="What are the main components?"
+						text="Explain the flow step by step"
 						onClick={onSuggestionClick}
 					/>
 				</div>

@@ -120,6 +120,7 @@ import { CollaboratorCursors } from "./canvas/CollaboratorCursors";
 import { ConnectionStatus } from "./canvas/ConnectionStatus";
 import { ContextMenu } from "./canvas/ContextMenu";
 import { DebugOverlay } from "./canvas/DebugOverlay";
+import { DocumentationModal } from "./canvas/DocumentationModal";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
@@ -1074,10 +1075,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const collaborators = useCollaboratorsArray();
 
 	// Helper to get the next zIndex for new elements (always on top)
+	// Uses elementsRef to avoid re-creating downstream callbacks on every element change
 	const getNextZIndex = useCallback(() => {
-		if (elements.length === 0) return 1;
-		return Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
-	}, [elements]);
+		const els = elementsRef.current;
+		if (els.length === 0) return 1;
+		return Math.max(...els.map((el) => el.zIndex || 0)) + 1;
+	}, []);
 
 	// ─────────────────────────────────────────────────────────────────
 	// GHOST PREVIEW BROADCASTING
@@ -1323,10 +1326,18 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		"png",
 	);
 
+	// Documentation modal state (Story 4)
+	const [showDocModal, setShowDocModal] = useState(false);
+
 	// Handle export from sidebar menu
 	const handleExport = useCallback((format: "png" | "svg" | "json") => {
 		setExportFormat(format);
 		setShowExportModal(true);
+	}, []);
+
+	// Handle documentation generation (Story 4)
+	const handleExportDocumentation = useCallback(() => {
+		setShowDocModal(true);
 	}, []);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -1341,10 +1352,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Import JSON scene
 	const handleImportScene = useCallback(() => {
+		const els = elementsRef.current;
 		const nextZ =
-			elements.length === 0
-				? 1
-				: Math.max(...elements.map((el) => el.zIndex || 0)) + 1;
+			els.length === 0 ? 1 : Math.max(...els.map((el) => el.zIndex || 0)) + 1;
 
 		importSceneFromFile(addElement, nextZ).then((result) => {
 			if (result.success) {
@@ -1354,7 +1364,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				window.alert(`Import failed: ${result.error}`);
 			}
 		});
-	}, [elements, addElement]);
+	}, [addElement]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// AUTO-CAPTURE THUMBNAIL for dashboard preview
@@ -1545,8 +1555,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	// Mirror a Map of elements by id for cheap O(1) lookups in effects and callbacks
 	const elementsMapRef = useRef<Map<string, CanvasElement>>(new Map());
+	// Keep a ref copy of the sorted elements array so hot-path callbacks
+	// (handleMouseMove, handleMouseDown, etc.) can read the latest elements
+	// without re-creating closures on every element change.
+	const elementsRef = useRef<CanvasElement[]>(elements);
 	useEffect(() => {
 		elementsMapRef.current = new Map(elements.map((e) => [e.id, e]));
+		elementsRef.current = elements;
 	}, [elements]);
 
 	// Sync selected freedraw element's appearance back to the panel tools so
@@ -1751,14 +1766,15 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleBringForward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
+		const els = elementsRef.current;
 
 		// Process each selected element
 		Array.from(selectedElementIds).forEach((id) => {
-			const currentIndex = elements.findIndex((el) => el.id === id);
-			if (currentIndex === -1 || currentIndex === elements.length - 1) return; // Already on top or not found
+			const currentIndex = els.findIndex((el) => el.id === id);
+			if (currentIndex === -1 || currentIndex === els.length - 1) return; // Already on top or not found
 
-			const currentElement = elements[currentIndex];
-			const elementAbove = elements[currentIndex + 1];
+			const currentElement = els[currentIndex];
+			const elementAbove = els[currentIndex + 1];
 
 			if (!currentElement || !elementAbove) return;
 
@@ -1770,7 +1786,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(id, { zIndex: aboveZ });
 			updateElement(elementAbove.id, { zIndex: currentZ });
 		});
-	}, [selectedElementIds, elements, updateElement]);
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Send selected elements backward one level (swap with element below)
@@ -1778,14 +1794,15 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleSendBackward = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
+		const els = elementsRef.current;
 
 		// Process each selected element
 		Array.from(selectedElementIds).forEach((id) => {
-			const currentIndex = elements.findIndex((el) => el.id === id);
+			const currentIndex = els.findIndex((el) => el.id === id);
 			if (currentIndex <= 0) return; // Already at back or not found
 
-			const currentElement = elements[currentIndex];
-			const elementBelow = elements[currentIndex - 1];
+			const currentElement = els[currentIndex];
+			const elementBelow = els[currentIndex - 1];
 
 			if (!currentElement || !elementBelow) return;
 
@@ -1797,7 +1814,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(id, { zIndex: belowZ });
 			updateElement(elementBelow.id, { zIndex: currentZ });
 		});
-	}, [selectedElementIds, elements, updateElement]);
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Bring selected elements to front (highest z-index)
@@ -1805,14 +1822,17 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleBringToFront = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const maxZ = Math.max(...elements.map((el) => el.zIndex || 0), 0);
+		const maxZ = Math.max(
+			...elementsRef.current.map((el) => el.zIndex || 0),
+			0,
+		);
 
 		let nextZ = maxZ + 1;
 		Array.from(selectedElementIds).forEach((id) => {
 			updateElement(id, { zIndex: nextZ });
 			nextZ++;
 		});
-	}, [selectedElementIds, elements, updateElement]);
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Send selected elements to back (lowest z-index)
@@ -1820,7 +1840,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleSendToBack = useCallback(() => {
 		if (selectedElementIds.size === 0) return;
 
-		const minZ = Math.min(...elements.map((el) => el.zIndex || 0), 0);
+		const minZ = Math.min(
+			...elementsRef.current.map((el) => el.zIndex || 0),
+			0,
+		);
 
 		// Set selected elements to zIndex below the minimum
 		let nextZ = minZ - selectedElementIds.size;
@@ -1828,7 +1851,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(id, { zIndex: nextZ });
 			nextZ++;
 		});
-	}, [selectedElementIds, elements, updateElement]);
+	}, [selectedElementIds, updateElement]);
 
 	/**
 	 * Handle context menu (right-click)
@@ -1880,10 +1903,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const showBeautifyButton = useMemo(() => {
 		if (selectedElementIds.size === 0) return false;
-		return elements.some(
+		return elementsRef.current.some(
 			(el) => selectedElementIds.has(el.id) && el.type === "freedraw",
 		);
-	}, [selectedElementIds, elements]);
+	}, [selectedElementIds]);
 
 	/**
 	 * Handle beautify: detect shapes from selected freedraw strokes and
@@ -1891,7 +1914,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleBeautify = useCallback(() => {
 		if (isReadOnly) return;
-		const selectedEls = elements.filter((el) => selectedElementIds.has(el.id));
+		const selectedEls = elementsRef.current.filter((el) =>
+			selectedElementIds.has(el.id),
+		);
 		if (selectedEls.length === 0) return;
 
 		const { removedIds, newElements } = beautifyElements(
@@ -1915,7 +1940,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setSelectedElementIds(newIds);
 	}, [
 		isReadOnly,
-		elements,
 		selectedElementIds,
 		getNextZIndex,
 		deleteElements,
@@ -1937,7 +1961,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 * Clear all elements from canvas
 	 */
 	const handleClearCanvas = useCallback(() => {
-		if (elements.length === 0) return;
+		const els = elementsRef.current;
+		if (els.length === 0) return;
 
 		// Confirm before clearing
 		if (
@@ -1945,11 +1970,11 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				"Are you sure you want to clear the entire canvas? This cannot be undone.",
 			)
 		) {
-			const allIds = elements.map((el) => el.id);
+			const allIds = els.map((el) => el.id);
 			deleteElements(allIds);
 			clearSelection();
 		}
-	}, [elements, deleteElements, clearSelection]);
+	}, [deleteElements, clearSelection]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// KEYBOARD SHORTCUTS
@@ -3116,28 +3141,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// relevant handlers change — NOT on every drawingElement update.
 	// ─────────────────────────────────────────────────────────────────
 
-	const committedElements = useMemo(
-		() =>
-			elements.map((element) =>
-				renderElement(
-					element,
-					selectedElementIds.has(element.id),
-					activeTool === "selection" && !rotatingElement,
-					false,
-					handleElementDragEnd,
-					handleJointDrag,
-				),
-			),
-		[
-			elements,
-			selectedElementIds,
-			activeTool,
-			rotatingElement,
-			handleElementDragEnd,
-			handleJointDrag,
-		],
-	);
-
 	// ─────────────────────────────────────────────────────────────────
 	// RENDER
 	// ─────────────────────────────────────────────────────────────────
@@ -3229,6 +3232,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				onClearCanvas={handleClearCanvas}
 				onExport={handleExport}
 				onImportJson={handleImportScene}
+				onExportDocumentation={handleExportDocumentation}
 			/>
 			<HeaderRight />
 			<Toolbar />
@@ -3296,14 +3300,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						renderElement(
 							element,
 							selectedElementIds.has(element.id),
-							activeTool === "selection",
+							activeTool === "selection" && !rotatingElement,
 							false, // not preview
 							handleElementDragEnd,
 							handleJointDrag,
 						),
 					)}
-					{/* Render existing elements (memoised — Phase 6) */}
-					{committedElements}
 
 					{/* Render element being drawn */}
 					{drawingElement &&
@@ -3477,6 +3479,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				elements={elements}
 				stageRef={stageRef}
 				initialFormat={exportFormat}
+			/>
+
+			{/* Documentation Modal (Story 4) */}
+			<DocumentationModal
+				isOpen={showDocModal}
+				onClose={() => setShowDocModal(false)}
+				stageRef={stageRef}
 			/>
 
 			{/* Activity Log Sidebar */}
