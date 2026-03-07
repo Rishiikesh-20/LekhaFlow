@@ -1994,41 +1994,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(elementAbove.id, { zIndex: currentZ });
 		});
 	}, [selectedElementIds, updateElement]);
-		// elements is already sorted by zIndex ascending
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		if (selected.length === 0 || unselected.length === 0) return;
-
-		// Find insertion index: count unselected elements below lowest selected
-		let insertIdx = 0;
-		const firstSelected = selected[0];
-		if (!firstSelected) return;
-		const lowestSelectedIdx = elements.indexOf(firstSelected);
-		for (let i = 0; i < lowestSelectedIdx; i++) {
-			const el = elements[i];
-			if (el && !selectedElementIds.has(el.id)) insertIdx++;
-		}
-
-		// Move one step up (past one unselected element)
-		if (insertIdx >= unselected.length) return; // already at top
-		insertIdx = Math.min(insertIdx + 1, unselected.length);
-
-		const newOrder = [
-			...unselected.slice(0, insertIdx),
-			...selected,
-			...unselected.slice(insertIdx),
-		];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
 	 * Send selected elements backward one level.
@@ -2057,40 +2022,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			updateElement(elementBelow.id, { zIndex: currentZ });
 		});
 	}, [selectedElementIds, updateElement]);
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		if (selected.length === 0 || unselected.length === 0) return;
-
-		// Find insertion index: count unselected elements below lowest selected
-		let insertIdx = 0;
-		const firstSelected = selected[0];
-		if (!firstSelected) return;
-		const lowestSelectedIdx = elements.indexOf(firstSelected);
-		for (let i = 0; i < lowestSelectedIdx; i++) {
-			const el = elements[i];
-			if (el && !selectedElementIds.has(el.id)) insertIdx++;
-		}
-
-		// Move one step down (past one unselected element below)
-		if (insertIdx <= 0) return; // already at back
-		insertIdx = Math.max(insertIdx - 1, 0);
-
-		const newOrder = [
-			...unselected.slice(0, insertIdx),
-			...selected,
-			...unselected.slice(insertIdx),
-		];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
 	 * Bring selected elements to front (highest z-index).
@@ -2110,21 +2041,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			nextZ++;
 		});
 	}, [selectedElementIds, updateElement]);
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		// New order: all unselected first, then selected block on top
-		const newOrder = [...unselected, ...selected];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
 	 * Send selected elements to back (lowest z-index).
@@ -2145,21 +2061,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			nextZ++;
 		});
 	}, [selectedElementIds, updateElement]);
-		const selected: typeof elements = [];
-		const unselected: typeof elements = [];
-		for (const el of elements) {
-			if (selectedElementIds.has(el.id)) selected.push(el);
-			else unselected.push(el);
-		}
-		// New order: selected block at bottom, then all unselected
-		const newOrder = [...selected, ...unselected];
-		const batch = newOrder.map((el, i) => ({
-			id: el.id,
-			updates: { zIndex: i + 1 },
-		}));
-		batchUpdateElements(batch);
-		storeBatchUpdate(batch);
-	}, [selectedElementIds, elements, batchUpdateElements, storeBatchUpdate]);
 
 	/**
 	 * Handle context menu (right-click)
@@ -3905,36 +3806,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		updateCursor(null);
 		setHoveredElement(null);
 	}, [updateCursor]);
-
-	// ─────────────────────────────────────────────────────────────────
-	// MEMOISED COMMITTED ELEMENTS (Phase 6)
-	// Re-compute render output only when elements, selection, or
-	// relevant handlers change — NOT on every drawingElement update.
-	// ─────────────────────────────────────────────────────────────────
-
-	const committedElements = useMemo(
-		() =>
-			elements.map((element) =>
-				renderElement(
-					element,
-					selectedElementIds.has(element.id),
-					activeTool === "selection" &&
-						!rotatingElement &&
-						selectedElementIds.size <= 1,
-					false,
-					handleElementDragEnd,
-					handleJointDrag,
-				),
-			),
-		[
-			elements,
-			selectedElementIds,
-			activeTool,
-			rotatingElement,
-			handleElementDragEnd,
-			handleJointDrag,
-		],
-	);
 
 	// ─────────────────────────────────────────────────────────────────
 	// RENDER

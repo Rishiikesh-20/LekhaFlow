@@ -453,6 +453,12 @@ export function useYjsSync(
 							updated: Date.now(),
 						} as CanvasElement);
 					}
+				}
+			});
+		},
+		[doc, getYElements],
+	);
+
 	const batchUpdateElements = useCallback(
 		(updates: Array<{ id: string; updates: Partial<CanvasElement> }>) => {
 			const yElements = getYElements();
