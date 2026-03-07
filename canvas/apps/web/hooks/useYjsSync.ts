@@ -64,6 +64,9 @@ interface UseYjsSyncReturn {
 	provider: HocuspocusProvider | null;
 	addElement: (element: CanvasElement) => void;
 	updateElement: (id: string, updates: Partial<CanvasElement>) => void;
+	batchUpdateElements: (
+		updates: Array<{ id: string; updates: Partial<CanvasElement> }>,
+	) => void;
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
@@ -432,6 +435,27 @@ export function useYjsSync(
 		[doc, getYElements],
 	);
 
+	const batchUpdateElements = useCallback(
+		(updates: Array<{ id: string; updates: Partial<CanvasElement> }>) => {
+			const yElements = getYElements();
+			const now = Date.now();
+			doc.transact(() => {
+				for (const { id, updates: partial } of updates) {
+					const existing = yElements.get(id);
+					if (!existing) continue;
+					yElements.set(id, {
+						...existing,
+						...partial,
+						lastModifiedBy: myNameRef.current,
+						version: (existing.version || 0) + 1,
+						updated: now,
+					} as CanvasElement);
+				}
+			});
+		},
+		[doc, getYElements],
+	);
+
 	const deleteElements = useCallback(
 		(ids: string[]) => {
 			const yElements = getYElements();
@@ -516,6 +540,7 @@ export function useYjsSync(
 		provider: providerRef.current,
 		addElement,
 		updateElement,
+		batchUpdateElements,
 		deleteElements,
 		updateCursor,
 		updateSelection,
