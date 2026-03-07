@@ -49,6 +49,7 @@ interface SidebarMenuProps {
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
 	onImportJson?: () => void;
+	onExportDocumentation?: () => void;
 }
 
 function SidebarMenu({
@@ -57,6 +58,7 @@ function SidebarMenu({
 	onClearCanvas,
 	onExport,
 	onImportJson,
+	onExportDocumentation,
 }: SidebarMenuProps) {
 	return (
 		<>
@@ -155,6 +157,23 @@ function SidebarMenu({
 								shortcut="Ctrl+Shift+I"
 								onClick={() => {
 									onImportJson?.();
+									onClose();
+								}}
+							/>
+						</div>
+					</div>
+
+					{/* Documentation Section (Story 4) */}
+					<div className="mb-4">
+						<p className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider m-0">
+							Documentation
+						</p>
+						<div className="flex flex-col gap-1">
+							<MenuItem
+								icon={<FileText />}
+								label="Export Documentation"
+								onClick={() => {
+									onExportDocumentation?.();
 									onClose();
 								}}
 							/>
@@ -445,12 +464,14 @@ interface HeaderLeftProps {
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
 	onImportJson?: () => void;
+	onExportDocumentation?: () => void;
 }
 
 export function HeaderLeft({
 	onClearCanvas,
 	onExport,
 	onImportJson,
+	onExportDocumentation,
 }: HeaderLeftProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [canvasName, setCanvasName] = useState("");
@@ -636,6 +657,7 @@ export function HeaderLeft({
 				onClearCanvas={onClearCanvas}
 				onExport={onExport}
 				onImportJson={onImportJson}
+				onExportDocumentation={onExportDocumentation}
 			/>
 		</>
 	);
