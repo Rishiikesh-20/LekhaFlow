@@ -3970,8 +3970,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						renderElement(
 							element,
 							selectedElementIds.has(element.id),
-							activeTool === "selection" && !rotatingElement,
-							activeTool === "selection" && selectedElementIds.size <= 1,
+							activeTool === "selection" &&
+								!rotatingElement &&
+								selectedElementIds.size <= 1,
 							false, // not preview
 							handleElementDragEnd,
 							handleJointDrag,
