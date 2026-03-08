@@ -4,7 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase.client";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 function Loading() {
 	return (

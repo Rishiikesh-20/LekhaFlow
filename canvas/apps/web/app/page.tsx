@@ -21,7 +21,8 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { supabase } from "../lib/supabase.client";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 export default function Home() {
 	const router = useRouter();

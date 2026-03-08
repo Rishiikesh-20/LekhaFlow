@@ -351,7 +351,8 @@ export function VersionsPanel({ token, onRestore }: VersionsPanelProps) {
 	const roomId = useCanvasStore((s) => s.roomId);
 	const elements = useCanvasStore((s) => s.elements);
 
-	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL ?? "http://localhost:8000";
+	const HTTP_URL =
+		process.env.NEXT_PUBLIC_HTTP_URL ?? "https://lekhaflow.rishiikesh.me";
 
 	// ── Fetch auth token from Supabase session if not passed as prop ──
 	const getToken = useCallback(async (): Promise<string | null> => {

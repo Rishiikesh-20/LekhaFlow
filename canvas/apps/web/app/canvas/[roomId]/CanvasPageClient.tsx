@@ -41,7 +41,7 @@ export function CanvasPageClient({ roomId }: CanvasPageClientProps) {
 		if (!token) return;
 
 		const HTTP_URL =
-			process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+			process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 		const timer = setTimeout(() => {
 			fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/touch`, {
 				method: "PATCH",

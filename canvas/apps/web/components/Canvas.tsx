@@ -1495,7 +1495,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// ─────────────────────────────────────────────────────────────────
 
 	const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+	const HTTP_URL =
+		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 	useEffect(() => {
 		// Clear previous timer on every element change
