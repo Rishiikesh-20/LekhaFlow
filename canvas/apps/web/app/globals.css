@@ -222,6 +222,17 @@ body {
 	}
 }
 
+/* Rich text editor cursor blink */
+.rich-text-cursor {
+	animation: blink-cursor 1s step-end infinite;
+}
+
+@keyframes blink-cursor {
+	50% {
+		opacity: 0;
+	}
+}
+
 /* ========================================================================
    SCROLLBAR
    ======================================================================== */
