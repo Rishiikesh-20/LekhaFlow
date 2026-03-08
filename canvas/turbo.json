@@ -1,11 +1,13 @@
 {
 	"$schema": "https://turborepo.com/schema.json",
 	"ui": "tui",
+	"globalEnv": ["GEMINI_API_KEY"],
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": [".next/**", "!.next/cache/**"]
+			"outputs": [".next/**", "!.next/cache/**"],
+			"env": ["GEMINI_API_KEY"]
 		},
 		"lint": {
 			"dependsOn": ["^lint"]
@@ -19,7 +21,8 @@
 		"dev": {
 			"dependsOn": ["^build"],
 			"cache": false,
-			"persistent": true
+			"persistent": true,
+			"env": ["GEMINI_API_KEY"]
 		}
 	}
 }

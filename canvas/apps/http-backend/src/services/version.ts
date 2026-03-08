@@ -3,7 +3,7 @@ import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
 import { createServiceClient } from "../supabase.server.js";
 
-const serviceClient = createServiceClient();
+const getClient = () => createServiceClient();
 
 export const saveVersionService = async (params: {
 	canvasId: string;
@@ -13,7 +13,7 @@ export const saveVersionService = async (params: {
 }): Promise<Tables<"canvas_versions">> => {
 	const { canvasId, name, snapshot, userId } = params;
 
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("canvas_versions")
 		.insert({
 			canvas_id: canvasId,
@@ -34,7 +34,7 @@ export const saveVersionService = async (params: {
 export const getVersionsService = async (
 	canvasId: string,
 ): Promise<Tables<"canvas_versions">[]> => {
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("canvas_versions")
 		.select("*")
 		.eq("canvas_id", canvasId)
@@ -50,7 +50,7 @@ export const getVersionsService = async (
 export const getVersionService = async (
 	versionId: string,
 ): Promise<Tables<"canvas_versions"> | null> => {
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("canvas_versions")
 		.select("*")
 		.eq("id", versionId)
@@ -68,7 +68,7 @@ export const deleteVersionService = async (
 	userId: string,
 ): Promise<void> => {
 	// Only allow the creator to delete
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvas_versions")
 		.delete()
 		.eq("id", versionId)

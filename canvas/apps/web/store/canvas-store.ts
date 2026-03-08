@@ -248,6 +248,22 @@ interface CanvasState {
 
 	/** Whether the activity sidebar is open */
 	isActivitySidebarOpen: boolean;
+
+	/** Whether the AI chat sidebar is open */
+	isAiChatOpen: boolean;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI PREVIEW STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Whether AI preview mode is active */
+	isAiPreviewActive: boolean;
+
+	/** Map of element id → partial updates being previewed */
+	aiPreviewChanges: Map<string, Partial<CanvasElement>>;
+
+	/** Map of element id → original element snapshot before preview */
+	aiPreviewOriginals: Map<string, CanvasElement>;
 }
 
 /**
@@ -435,6 +451,32 @@ interface CanvasActions {
 
 	/** Clear the activity log */
 	clearActivityLog: () => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI CHAT ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Toggle the AI chat sidebar */
+	setAiChatOpen: (open: boolean) => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI PREVIEW ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Enter AI preview mode with changes and their originals */
+	setAiPreview: (
+		changes: Map<string, Partial<CanvasElement>>,
+		originals: Map<string, CanvasElement>,
+	) => void;
+
+	/** Accept AI preview (commit changes, exit preview mode) */
+	acceptAiPreview: () => void;
+
+	/** Reject AI preview (revert to originals, exit preview mode) */
+	rejectAiPreview: () => void;
+
+	/** Clear AI preview state */
+	clearAiPreview: () => void;
 }
 
 // ============================================================================
@@ -526,6 +568,14 @@ export const initialState: CanvasState = {
 	// Activity log
 	activityLog: [],
 	isActivitySidebarOpen: false,
+
+	// AI chat
+	isAiChatOpen: false,
+
+	// AI preview
+	isAiPreviewActive: false,
+	aiPreviewChanges: new Map(),
+	aiPreviewOriginals: new Map(),
 };
 
 /**
@@ -834,6 +884,51 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 		setActivitySidebarOpen: (open) => set({ isActivitySidebarOpen: open }),
 
 		clearActivityLog: () => set({ activityLog: [] }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// AI CHAT ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setAiChatOpen: (open) => set({ isAiChatOpen: open }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// AI PREVIEW ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setAiPreview: (changes, originals) =>
+			set({
+				isAiPreviewActive: true,
+				aiPreviewChanges: new Map(changes),
+				aiPreviewOriginals: new Map(originals),
+			}),
+
+		acceptAiPreview: () =>
+			set({
+				isAiPreviewActive: false,
+				aiPreviewChanges: new Map(),
+				aiPreviewOriginals: new Map(),
+			}),
+
+		rejectAiPreview: () =>
+			set((state) => {
+				const newElements = new Map(state.elements);
+				for (const [id, original] of state.aiPreviewOriginals) {
+					newElements.set(id, original);
+				}
+				return {
+					elements: newElements,
+					isAiPreviewActive: false,
+					aiPreviewChanges: new Map(),
+					aiPreviewOriginals: new Map(),
+				};
+			}),
+
+		clearAiPreview: () =>
+			set({
+				isAiPreviewActive: false,
+				aiPreviewChanges: new Map(),
+				aiPreviewOriginals: new Map(),
+			}),
 	})),
 );
 

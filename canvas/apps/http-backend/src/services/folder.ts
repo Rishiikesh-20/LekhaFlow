@@ -3,7 +3,7 @@ import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
 import { createServiceClient } from "../supabase.server";
 
-const serviceClient = createServiceClient();
+const getClient = () => createServiceClient();
 
 export const createFolderService = async (params: {
 	name: string;
@@ -14,7 +14,7 @@ export const createFolderService = async (params: {
 
 	// If parentId is provided, verify it exists and belongs to the user
 	if (parentId) {
-		const { data: parentFolder } = await serviceClient
+		const { data: parentFolder } = await getClient()
 			.from("folders")
 			.select("id")
 			.eq("id", parentId)
@@ -26,7 +26,7 @@ export const createFolderService = async (params: {
 		}
 	}
 
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("folders")
 		.insert({
 			name,
@@ -53,7 +53,7 @@ export const getFolderContentsService = async (
 	canvases: Tables<"canvases">[];
 }> => {
 	// Get child folders
-	let folderQuery = serviceClient
+	let folderQuery = getClient()
 		.from("folders")
 		.select("*")
 		.eq("owner_id", ownerId)
@@ -81,7 +81,7 @@ export const getFolderContentsService = async (
 	const ascending = order === "asc";
 
 	// Get child canvases
-	let canvasQuery = serviceClient
+	let canvasQuery = getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", ownerId)
@@ -118,7 +118,7 @@ export const getFolderBreadcrumbService = async (
 		const {
 			data: folder,
 		}: { data: { id: string; name: string; parent_id: string | null } | null } =
-			await serviceClient
+			await getClient()
 				.from("folders")
 				.select("id, name, parent_id")
 				.eq("id", currentId)
@@ -139,7 +139,7 @@ export const deleteFolderService = async (
 	ownerId: string,
 ): Promise<void> => {
 	// Verify folder exists and belongs to user
-	const { data: folder } = await serviceClient
+	const { data: folder } = await getClient()
 		.from("folders")
 		.select("id")
 		.eq("id", folderId)
@@ -155,7 +155,7 @@ export const deleteFolderService = async (
 	allFolderIds.push(folderId);
 
 	// Soft-delete all canvases in these folders
-	const { error: canvasError } = await serviceClient
+	const { error: canvasError } = await getClient()
 		.from("canvases")
 		.update({ is_deleted: true })
 		.in("folder_id", allFolderIds)
@@ -168,7 +168,7 @@ export const deleteFolderService = async (
 	// Delete all folders (deepest first to respect FK constraints)
 	// We delete in reverse order (children before parents)
 	for (const id of allFolderIds.reverse()) {
-		const { error } = await serviceClient
+		const { error } = await getClient()
 			.from("folders")
 			.delete()
 			.eq("id", id)
@@ -181,7 +181,7 @@ export const deleteFolderService = async (
 };
 
 async function collectDescendantFolderIds(parentId: string): Promise<string[]> {
-	const { data: children } = await serviceClient
+	const { data: children } = await getClient()
 		.from("folders")
 		.select("id")
 		.eq("parent_id", parentId);
@@ -204,7 +204,7 @@ export const moveFolderService = async (
 	ownerId: string,
 ): Promise<void> => {
 	// Verify folder exists and belongs to user
-	const { data: folder } = await serviceClient
+	const { data: folder } = await getClient()
 		.from("folders")
 		.select("id")
 		.eq("id", folderId)
@@ -236,7 +236,7 @@ export const moveFolderService = async (
 			}
 
 			const { data: parent }: { data: { parent_id: string | null } | null } =
-				await serviceClient
+				await getClient()
 					.from("folders")
 					.select("parent_id")
 					.eq("id", currentId)
@@ -248,7 +248,7 @@ export const moveFolderService = async (
 		}
 	}
 
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("folders")
 		.update({ parent_id: newParentId })
 		.eq("id", folderId)
@@ -266,7 +266,7 @@ export const moveCanvasToFolderService = async (
 ): Promise<void> => {
 	// If moving to a folder, verify the folder exists and belongs to user
 	if (folderId) {
-		const { data: folder } = await serviceClient
+		const { data: folder } = await getClient()
 			.from("folders")
 			.select("id")
 			.eq("id", folderId)
@@ -278,7 +278,7 @@ export const moveCanvasToFolderService = async (
 		}
 	}
 
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvases")
 		.update({ folder_id: folderId })
 		.eq("id", canvasId)

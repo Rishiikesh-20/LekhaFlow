@@ -325,3 +325,79 @@ input[type="range"]::-moz-range-thumb {
 .scrollbar-hide::-webkit-scrollbar {
 	display: none;
 }
+
+/* ====================================================================
+   AI CHAT SIDEBAR STYLES
+   ==================================================================== */
+
+/* Typing indicator animation */
+.ai-typing-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background-color: #9ca3af;
+	animation: ai-typing-bounce 1.4s infinite ease-in-out both;
+}
+
+@keyframes ai-typing-bounce {
+	0%,
+	80%,
+	100% {
+		transform: scale(0.6);
+		opacity: 0.4;
+	}
+	40% {
+		transform: scale(1);
+		opacity: 1;
+	}
+}
+
+/* AI message content formatting */
+.ai-message-content strong {
+	font-weight: 600;
+}
+
+.ai-message-content em {
+	font-style: italic;
+}
+
+.ai-message-content .ai-heading {
+	font-weight: 600;
+	margin: 8px 0 4px;
+	font-size: 13px;
+}
+
+.ai-message-content .ai-inline-code {
+	background: rgba(124, 58, 237, 0.08);
+	padding: 1px 5px;
+	border-radius: 4px;
+	font-family: ui-monospace, monospace;
+	font-size: 12px;
+	color: #6d28d9;
+}
+
+.ai-message-content .ai-code-block {
+	background: rgba(0, 0, 0, 0.06);
+	padding: 8px 12px;
+	border-radius: 8px;
+	margin: 6px 0;
+	overflow-x: auto;
+	font-family: ui-monospace, monospace;
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.ai-message-content .ai-list-item,
+.ai-message-content .ai-list-item-num {
+	display: list-item;
+	margin-left: 16px;
+	padding: 1px 0;
+}
+
+.ai-message-content .ai-list-item {
+	list-style-type: disc;
+}
+
+.ai-message-content .ai-list-item-num {
+	list-style-type: decimal;
+}

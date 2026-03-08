@@ -4,7 +4,7 @@ import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
 import { createServiceClient } from "../supabase.server";
 
-const serviceClient = createServiceClient();
+const getClient = () => createServiceClient();
 
 const generateSlug = (name: string): string => {
 	const base = name
@@ -44,7 +44,7 @@ export const getCanvasesService = async (
 	userId: string,
 ): Promise<Tables<"canvases">[]> => {
 	// 1. Get canvases owned by the user
-	const { data: ownedCanvases, error: ownedError } = await serviceClient
+	const { data: ownedCanvases, error: ownedError } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", userId)
@@ -56,7 +56,7 @@ export const getCanvasesService = async (
 	}
 
 	// 2. Get canvas IDs this user has accessed (but doesn't own) via activity_logs
-	const { data: accessLogs } = await serviceClient
+	const { data: accessLogs } = await getClient()
 		.from("activity_logs")
 		.select("canvas_id")
 		.eq("user_id", userId)
@@ -72,7 +72,7 @@ export const getCanvasesService = async (
 
 	let sharedCanvases: Tables<"canvases">[] = [];
 	if (accessedCanvasIds.length > 0) {
-		const { data: shared } = await serviceClient
+		const { data: shared } = await getClient()
 			.from("canvases")
 			.select("*")
 			.in("id", accessedCanvasIds)
@@ -89,7 +89,7 @@ export const getCanvasesService = async (
 export const getCanvasService = async (
 	canvasId: string,
 ): Promise<Tables<"canvases"> | null> => {
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("id", canvasId)
@@ -114,7 +114,7 @@ export const updateCanvasService = async (
 	if (update.thumbnail_url !== undefined)
 		updateFields.thumbnail_url = update.thumbnail_url;
 
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvases")
 		.update(updateFields)
 		.eq("id", canvasId)
@@ -128,7 +128,7 @@ export const deleteCanvasService = async (
 	canvasId: string,
 	userId: string,
 ): Promise<void> => {
-	const { error } = await serviceClient
+	const { error } = await getClient()
 		.from("canvases")
 		.update({ is_deleted: true, deleted_at: new Date().toISOString() })
 		.eq("id", canvasId)
@@ -145,7 +145,7 @@ export const syncUserService = async (user: {
 	name: string;
 	avatar_url: string | null;
 }): Promise<Tables<"users">> => {
-	const { data, error } = await serviceClient
+	const { data, error } = await getClient()
 		.from("users")
 		.upsert(
 			{
@@ -197,7 +197,7 @@ export const searchCanvasesService = async (
 
 	// If no search query, return all canvases with sorting & pagination
 	if (!q.trim()) {
-		const { count } = await serviceClient
+		const { count } = await getClient()
 			.from("canvases")
 			.select("*", { count: "exact", head: true })
 			.eq("owner_id", userId)
@@ -207,7 +207,7 @@ export const searchCanvasesService = async (
 		const from = (page - 1) * limit;
 		const to = from + limit - 1;
 
-		const { data, error } = await serviceClient
+		const { data, error } = await getClient()
 			.from("canvases")
 			.select("*")
 			.eq("owner_id", userId)
@@ -223,7 +223,7 @@ export const searchCanvasesService = async (
 	}
 
 	// Search by name (ILIKE)
-	const { data: nameMatches, error: nameError } = await serviceClient
+	const { data: nameMatches, error: nameError } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", userId)
@@ -235,7 +235,7 @@ export const searchCanvasesService = async (
 	}
 
 	// Search by tag name via junction table
-	const { data: tagMatches, error: tagError } = await serviceClient
+	const { data: tagMatches, error: tagError } = await getClient()
 		.from("tags_on_canvases")
 		.select("canvas_id, tags!inner(name)")
 		.ilike("tags.name", `%${q}%`);
@@ -255,7 +255,7 @@ export const searchCanvasesService = async (
 
 	let tagCanvases: Tables<"canvases">[] = [];
 	if (tagCanvasIds.length > 0) {
-		const { data: tagCanvasData } = await serviceClient
+		const { data: tagCanvasData } = await getClient()
 			.from("canvases")
 			.select("*")
 			.in("id", tagCanvasIds)
@@ -287,4 +287,43 @@ export const searchCanvasesService = async (
 	const paginatedCanvases = allCanvases.slice(from, from + limit);
 
 	return { canvases: paginatedCanvases, total, page, limit };
+};
+
+export const getRecentCanvasesService = async (
+	userId: string,
+	limit = 5,
+): Promise<Tables<"canvases">[]> => {
+	const { data, error } = await getClient()
+		.from("canvases")
+		.select("*")
+		.eq("owner_id", userId)
+		.eq("is_deleted", false)
+		.not("last_accessed_at", "is", null)
+		.order("last_accessed_at", { ascending: false })
+		.limit(limit);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	return data || [];
+};
+
+export const touchCanvasAccessService = async (
+	canvasId: string,
+	userId: string,
+): Promise<void> => {
+	try {
+		await getClient()
+			.from("canvases")
+			.update({ last_accessed_at: new Date().toISOString() })
+			.eq("id", canvasId)
+			.eq("owner_id", userId);
+	} catch (err) {
+		// Fire-and-forget: log but don't throw
+		console.error(
+			"[touchCanvasAccess] Failed to update last_accessed_at:",
+			err,
+		);
+	}
 };

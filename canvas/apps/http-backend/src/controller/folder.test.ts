@@ -137,23 +137,29 @@ describe("Folder API", () => {
 			];
 
 			// Build the chained query mocks for folders
-			const folderOrderMock = vi.fn().mockResolvedValue({
+			// Actual chain: select("*").eq("owner_id").order("name").is("parent_id", null)
+			const folderIsMock = vi.fn().mockResolvedValue({
 				data: mockFolders,
 				error: null,
 			});
-			const folderIsMock = vi.fn().mockReturnValue({ order: folderOrderMock });
-			const folderEqOwnerMock = vi.fn().mockReturnValue({ is: folderIsMock });
+			const folderOrderMock = vi.fn().mockReturnValue({ is: folderIsMock });
+			const folderEqOwnerMock = vi
+				.fn()
+				.mockReturnValue({ order: folderOrderMock });
 			const folderSelectMock = vi
 				.fn()
 				.mockReturnValue({ eq: folderEqOwnerMock });
 
 			// Build the chained query mocks for canvases
-			const canvasOrderMock = vi.fn().mockResolvedValue({
+			// Actual chain: select("*").eq("owner_id").eq("is_deleted").order(...).is("folder_id", null)
+			const canvasIsMock = vi.fn().mockResolvedValue({
 				data: mockCanvases,
 				error: null,
 			});
-			const canvasIsMock = vi.fn().mockReturnValue({ order: canvasOrderMock });
-			const canvasEqDeletedMock = vi.fn().mockReturnValue({ is: canvasIsMock });
+			const canvasOrderMock = vi.fn().mockReturnValue({ is: canvasIsMock });
+			const canvasEqDeletedMock = vi
+				.fn()
+				.mockReturnValue({ order: canvasOrderMock });
 			const canvasEqOwnerMock = vi
 				.fn()
 				.mockReturnValue({ eq: canvasEqDeletedMock });
