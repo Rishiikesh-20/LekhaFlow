@@ -22,7 +22,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.client";
 import { Button } from "./ui/Button";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 interface FolderItem {
 	id: string;
