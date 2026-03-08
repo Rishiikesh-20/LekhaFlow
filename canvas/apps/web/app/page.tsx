@@ -5,6 +5,7 @@ import {
 	ArrowRight,
 	LogOut,
 	Plus,
+	Shield,
 	Sparkles,
 	Trash2,
 	Users,
@@ -165,6 +166,13 @@ export default function Home() {
 										{userName}
 									</span>
 								</div>
+								<Link
+									href="/rbac"
+									className="p-2 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+									title="Manage Roles"
+								>
+									<Shield size={18} />
+								</Link>
 								<button
 									type="button"
 									onClick={handleSignOut}

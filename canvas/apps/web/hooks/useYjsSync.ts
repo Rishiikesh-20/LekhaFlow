@@ -15,7 +15,12 @@
 "use client";
 
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import type { CanvasElement, Collaborator, Point } from "@repo/common";
+import type {
+	CanvasElement,
+	Collaborator,
+	Point,
+	ViewportState,
+} from "@repo/common";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { useCanvasStore } from "../store";
@@ -41,7 +46,9 @@ interface AwarenessState {
 		color: string;
 	};
 	cursor: Point | null;
+	laserData?: [number, number][];
 	selectedElementIds: string[];
+	viewport?: ViewportState;
 }
 
 /**
@@ -70,7 +77,9 @@ interface UseYjsSyncReturn {
 	) => void;
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
+	updateLaser: (points: [number, number][] | undefined) => void;
 	updateSelection: (ids: string[]) => void;
+	updateViewport: (viewport: ViewportState) => void;
 	getYElements: () => Y.Map<CanvasElement>;
 	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
 	undo: () => void;
@@ -345,8 +354,10 @@ export function useYjsSync(
 					name: awarenessState.user.name,
 					color: awarenessState.user.color,
 					cursor: awarenessState.cursor,
+					laserData: awarenessState.laserData,
 					selectedElementIds: awarenessState.selectedElementIds || [],
 					isCurrentUser: false,
+					viewport: awarenessState.viewport,
 				});
 			});
 
@@ -507,10 +518,22 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("cursor", position);
 	}, []);
 
+	const updateLaser = useCallback((points: [number, number][] | undefined) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("laserData", points);
+	}, []);
+
 	const updateSelection = useCallback((ids: string[]) => {
 		const provider = providerRef.current;
 		if (!provider?.awareness) return;
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
+	}, []);
+
+	const updateViewport = useCallback((viewport: ViewportState) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("viewport", viewport);
 	}, []);
 
 	/**
@@ -568,7 +591,9 @@ export function useYjsSync(
 		batchUpdateElements,
 		deleteElements,
 		updateCursor,
+		updateLaser,
 		updateSelection,
+		updateViewport,
 		getYElements,
 		restoreVersion,
 		undo,

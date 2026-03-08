@@ -53,3 +53,15 @@ export const MoveCanvasSchema = z.object({
 export type CreateFolderType = z.infer<typeof CreateFolderSchema>;
 export type MoveFolderType = z.infer<typeof MoveFolderSchema>;
 export type MoveCanvasType = z.infer<typeof MoveCanvasSchema>;
+
+// Collaboration/Invite Schemas
+export const CreateInviteSchema = z.object({
+	role: z.enum(["editor", "viewer"]),
+});
+
+export const JoinCanvasSchema = z.object({
+	token: z.string().min(1, "Invite token is required"),
+});
+
+export type CreateInviteType = z.infer<typeof CreateInviteSchema>;
+export type JoinCanvasType = z.infer<typeof JoinCanvasSchema>;

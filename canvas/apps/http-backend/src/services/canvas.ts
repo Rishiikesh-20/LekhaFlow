@@ -1,7 +1,9 @@
 import type { CreateCanvasType } from "@repo/common";
+import { serverEnv } from "@repo/config/server";
 import { HttpError } from "@repo/http-core";
 import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
+import jwt from "jsonwebtoken";
 import { createServiceClient } from "../supabase.server";
 
 const getClient = () => createServiceClient();
@@ -16,7 +18,7 @@ const generateSlug = (name: string): string => {
 };
 
 export const createCanvasService = async (
-	params: CreateCanvasType & { userId: string },
+	params: CreateCanvasType & { userId: string; folderId?: string | null },
 ): Promise<Tables<"canvases">> => {
 	const { name, isPublic, folderId, userId } = params;
 
@@ -287,6 +289,101 @@ export const searchCanvasesService = async (
 	const paginatedCanvases = allCanvases.slice(from, from + limit);
 
 	return { canvases: paginatedCanvases, total, page, limit };
+};
+
+export const createInviteService = async (
+	roomId: string,
+	role: "editor" | "viewer",
+	userId: string,
+): Promise<{ inviteLink: string }> => {
+	// First check if the user is the owner (only owner can generate links for now)
+	const canvas = await getCanvasService(roomId);
+	if (!canvas || canvas.owner_id !== userId) {
+		throw new HttpError(
+			"You are not authorized to create invites for this canvas",
+			StatusCodes.FORBIDDEN,
+		);
+	}
+
+	// Using the same secret as Supabase Auth provides a consistent JWT strategy
+	const JWT_SECRET =
+		process.env.JWT_SECRET || serverEnv.SUPABASE_ANON_KEY || "fallback_secret";
+
+	const payload = {
+		canvasId: roomId,
+		role,
+	};
+
+	const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+
+	return { inviteLink: token }; // Return the token to construct link on frontend
+};
+
+export const joinCanvasService = async (
+	token: string,
+	userId: string,
+): Promise<{ roomId: string; role: string }> => {
+	const JWT_SECRET =
+		process.env.JWT_SECRET || serverEnv.SUPABASE_ANON_KEY || "fallback_secret";
+
+	try {
+		const decoded = jwt.verify(token, JWT_SECRET) as {
+			canvasId: string;
+			role: string;
+		};
+		const { canvasId, role } = decoded;
+
+		// Verify canvas exists
+		const canvas = await getCanvasService(canvasId);
+		if (!canvas) {
+			throw new HttpError(
+				"Canvas not found or has been deleted",
+				StatusCodes.NOT_FOUND,
+			);
+		}
+
+		// Map role to valid canvas_role enum (owner handled differently)
+		let validRole = role;
+		if (role !== "editor" && role !== "viewer") {
+			validRole = "viewer"; // Default fallback
+		}
+
+		if (canvas.owner_id === userId) {
+			// User is already owner, just return
+			return { roomId: canvasId, role: "owner" };
+		}
+
+		// Insert or update member record
+		const { error } = await getClient()
+			.from("canvas_members")
+			.upsert(
+				{
+					canvas_id: canvasId,
+					user_id: userId,
+					role: validRole as "editor" | "viewer",
+				},
+				{
+					onConflict: "canvas_id,user_id",
+				},
+			);
+
+		if (error) {
+			throw new HttpError(
+				`Failed to join canvas: ${error.message}`,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+
+		return { roomId: canvasId, role: validRole };
+	} catch (err: unknown) {
+		if (err instanceof Error && err.name === "TokenExpiredError") {
+			throw new HttpError(
+				"Provide a valid invite token",
+				StatusCodes.BAD_REQUEST,
+			);
+		}
+		throw new HttpError("Invalid invite token", StatusCodes.BAD_REQUEST);
+	}
 };
 
 export const getRecentCanvasesService = async (

@@ -21,7 +21,10 @@
 				"noArrayIndexKey": "off"
 			},
 			"a11y": {
-				"useSemanticElements": "off"
+				"useSemanticElements": "off",
+				"useButtonType": "warn",
+				"noStaticElementInteractions": "warn",
+				"useKeyWithClickEvents": "warn"
 			}
 		}
 	},

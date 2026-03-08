@@ -2,10 +2,12 @@ import type { Router as RouterType } from "express";
 import { Router } from "express";
 import {
 	createCanvas,
+	createInviteLink,
 	deleteCanvas,
 	getCanvas,
 	getCanvases,
 	getRecentCanvases,
+	joinCanvasWithLink,
 	searchCanvases,
 	touchCanvasAccess,
 	updateCanvas,
@@ -21,3 +23,6 @@ canvasRouter.post("/create-canvas", authMiddleware, createCanvas);
 canvasRouter.put("/:roomId", authMiddleware, updateCanvas);
 canvasRouter.patch("/:roomId/touch", authMiddleware, touchCanvasAccess);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
+
+canvasRouter.post("/:roomId/invites", authMiddleware, createInviteLink);
+canvasRouter.post("/:roomId/join", authMiddleware, joinCanvasWithLink);
