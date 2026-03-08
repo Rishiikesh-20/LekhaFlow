@@ -18,6 +18,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import type { CanvasElement, Collaborator, Point } from "@repo/common";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
+import { ensureTextRuns } from "../lib/text-runs";
 import { useCanvasStore } from "../store";
 
 // ============================================================================
@@ -43,6 +44,8 @@ interface AwarenessState {
 	};
 	cursor: Point | null;
 	selectedElementIds: string[];
+	/** Element currently being text-edited by this user */
+	editingElementId: string | null;
 }
 
 /**
@@ -72,6 +75,7 @@ interface UseYjsSyncReturn {
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
+	updateEditingElement: (id: string | null) => void;
 	getYElements: () => Y.Map<CanvasElement>;
 	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
 	undo: () => void;
@@ -280,6 +284,17 @@ export function useYjsSync(
 		const handleElementsChange = (event?: Y.YMapEvent<CanvasElement>) => {
 			// Sync Y.Map state to the Zustand store
 			syncElementsToStore();
+			const elementsObj = yElements.toJSON() as Record<string, CanvasElement>;
+			const elementsMap = new Map<string, CanvasElement>();
+
+			for (const [id, element] of Object.entries(elementsObj)) {
+				if (!element.isDeleted) {
+					// Migrate legacy text elements to runs model
+					elementsMap.set(id, ensureTextRuns(element));
+				}
+			}
+
+			setElements(elementsMap);
 
 			// ── Generate activity log entries from the Y.Map event ──
 			if (event && hasSyncedRef.current) {
@@ -573,6 +588,13 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
 	}, []);
 
+	/** Broadcast which element the local user is currently editing (text). */
+	const updateEditingElement = useCallback((id: string | null) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("editingElementId", id);
+	}, []);
+
 	/**
 	 * Restore canvas to a saved version snapshot.
 	 * Performs a "hard reset": deletes all current elements and recreates
@@ -629,6 +651,7 @@ export function useYjsSync(
 		deleteElements,
 		updateCursor,
 		updateSelection,
+		updateEditingElement,
 		getYElements,
 		restoreVersion,
 		undo,
