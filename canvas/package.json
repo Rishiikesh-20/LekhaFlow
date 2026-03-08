@@ -19,7 +19,10 @@
 		"typescript": "5.9.2"
 	},
 	"pnpm": {
-		"onlyBuiltDependencies": ["esbuild", "sharp"]
+		"onlyBuiltDependencies": [
+			"esbuild",
+			"sharp"
+		]
 	},
 	"packageManager": "pnpm@10.28.0",
 	"engines": {
