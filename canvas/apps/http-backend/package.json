@@ -4,10 +4,10 @@
 	"description": "",
 	"main": "index.js",
 	"scripts": {
-		"start": "dotenv -e ../../supabase2.env -- node dist/index.js",
+		"start": "dotenv -e ../../.env -- node dist/index.js",
 		"test": "vitest run",
 		"build": "tsc -b",
-		"dev": "npm run build && npm run start"
+		"dev": "dotenv -e ../../.env -- tsx watch src/index.ts"
 	},
 	"dependencies": {
 		"@types/cors": "^2.8.19",

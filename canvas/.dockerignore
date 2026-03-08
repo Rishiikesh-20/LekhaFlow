@@ -1,0 +1,15 @@
+node_modules
+.next
+dist
+.turbo
+*.tsbuildinfo
+.git
+.gitignore
+*.md
+*.patch
+*.ps1
+bruno
+.husky
+.env
+.env.local
+.env.*.local

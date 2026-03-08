@@ -7,6 +7,9 @@ import {
 	deleteCanvasService,
 	getCanvasesService,
 	getCanvasService,
+	getRecentCanvasesService,
+	searchCanvasesService,
+	touchCanvasAccessService,
 	updateCanvasService,
 } from "../services/canvas.js";
 
@@ -22,7 +25,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 		);
 	}
 
-	const { name, isPublic } = parsedData.data;
+	const { name, isPublic, folderId } = parsedData.data;
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -31,6 +34,7 @@ export const createCanvas = async (req: Request, res: Response) => {
 	const newCanvas = await createCanvasService({
 		name,
 		isPublic,
+		folderId,
 		userId,
 	});
 
@@ -110,4 +114,74 @@ export const deleteCanvas = async (req: Request, res: Response) => {
 	await deleteCanvasService(roomId, req.user.id);
 
 	return JSONResponse(res, StatusCodes.OK, "Canvas deleted successfully");
+};
+
+export const searchCanvases = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const q = (req.query.q as string) || "";
+	const sortByParam = (req.query.sortBy as string) || "createdAt";
+	const orderParam = (req.query.order as string) || "desc";
+	const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+	const limit = Math.min(
+		100,
+		Math.max(1, parseInt(req.query.limit as string, 10) || 20),
+	);
+
+	// Validate sortBy
+	const sortBy: "createdAt" | "title" =
+		sortByParam === "title" ? "title" : "createdAt";
+
+	// Validate order
+	const order: "asc" | "desc" = orderParam === "asc" ? "asc" : "desc";
+
+	const result = await searchCanvasesService(req.user.id, {
+		q,
+		sortBy,
+		order,
+		page,
+		limit,
+	});
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		"Search results retrieved successfully",
+		result,
+	);
+};
+
+export const getRecentCanvases = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const canvases = await getRecentCanvasesService(req.user.id);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		"Recent canvases retrieved successfully",
+		{
+			canvases,
+		},
+	);
+};
+
+export const touchCanvasAccess = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const { roomId } = req.params;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+
+	// Fire-and-forget: don't await
+	touchCanvasAccessService(roomId, req.user.id);
+
+	res.status(StatusCodes.NO_CONTENT).end();
 };

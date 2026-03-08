@@ -28,42 +28,66 @@ function getUserColor(userId: string): string {
 export function CanvasAuthWrapper({ roomId }: { roomId: string }) {
 	const [token, setToken] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [connError, setConnError] = useState<string | null>(null);
 	const router = useRouter();
 	const setMyIdentity = useCanvasStore((s) => s.setMyIdentity);
 
 	useEffect(() => {
+		let cancelled = false;
+
 		const fetchSession = async () => {
-			const {
-				data: { session },
-			} = await supabase.auth.getSession();
+			try {
+				const {
+					data: { session },
+					error,
+				} = await supabase.auth.getSession();
 
-			if (!session) {
-				router.replace(
-					`/login?next=${encodeURIComponent(`/canvas/${roomId}`)}`,
+				if (cancelled) return;
+
+				if (error) {
+					setConnError(
+						"Failed to connect to authentication service. Please check your internet connection and try again.",
+					);
+					setLoading(false);
+					return;
+				}
+
+				if (!session) {
+					router.replace(
+						`/login?next=${encodeURIComponent(`/canvas/${roomId}`)}`,
+					);
+					return;
+				}
+
+				setToken(session.access_token);
+
+				const user = session.user;
+				const name =
+					user.user_metadata?.name ||
+					user.user_metadata?.full_name ||
+					user.email?.split("@")[0] ||
+					"User";
+				const color = getUserColor(user.id);
+				setMyIdentity(name, color);
+				setLoading(false);
+			} catch (err) {
+				if (cancelled) return;
+				// Ignore AbortError — caused by React Fast Refresh unmounting
+				if (err instanceof Error && err.name === "AbortError") return;
+				console.error("[CanvasAuthWrapper] getSession failed:", err);
+				setConnError(
+					"Failed to connect to authentication service. Please check your internet connection and try again.",
 				);
-				return;
+				setLoading(false);
 			}
-
-			setToken(session.access_token);
-
-			// Set real user identity in canvas store
-			const user = session.user;
-			const name =
-				user.user_metadata?.name ||
-				user.user_metadata?.full_name ||
-				user.email?.split("@")[0] ||
-				"User";
-			const color = getUserColor(user.id);
-			setMyIdentity(name, color);
-
-			setLoading(false);
 		};
+
 		fetchSession();
 
-		// Listen for auth changes
 		const {
 			data: { subscription },
 		} = supabase.auth.onAuthStateChange((_event, session) => {
+			if (cancelled) return;
 			if (session) {
 				setToken(session.access_token);
 				const user = session.user;
@@ -81,8 +105,50 @@ export function CanvasAuthWrapper({ roomId }: { roomId: string }) {
 			}
 		});
 
-		return () => subscription.unsubscribe();
+		return () => {
+			cancelled = true;
+			subscription.unsubscribe();
+		};
 	}, [roomId, router, setMyIdentity]);
+
+	if (connError) {
+		return (
+			<div className="flex items-center justify-center h-screen bg-gray-50">
+				<div className="flex flex-col items-center gap-4 max-w-sm text-center px-6">
+					<div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+						<svg
+							className="w-7 h-7 text-red-500"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							strokeWidth={2}
+							aria-hidden="true"
+						>
+							<path
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+							/>
+						</svg>
+					</div>
+					<h2 className="text-lg font-semibold text-gray-800">
+						Connection Error
+					</h2>
+					<p className="text-sm text-gray-500">{connError}</p>
+					<button
+						type="button"
+						onClick={() => {
+							setConnError(null);
+							setLoading(true);
+						}}
+						className="mt-2 px-5 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 transition-colors"
+					>
+						Retry
+					</button>
+				</div>
+			</div>
+		);
+	}
 
 	if (loading) {
 		return (

@@ -48,6 +48,8 @@ interface SidebarMenuProps {
 	onClose: () => void;
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
+	onImportJson?: () => void;
+	onExportDocumentation?: () => void;
 }
 
 function SidebarMenu({
@@ -55,6 +57,8 @@ function SidebarMenu({
 	onClose,
 	onClearCanvas,
 	onExport,
+	onImportJson,
+	onExportDocumentation,
 }: SidebarMenuProps) {
 	return (
 		<>
@@ -144,6 +148,32 @@ function SidebarMenu({
 								label="Export as JSON"
 								onClick={() => {
 									onExport?.("json");
+									onClose();
+								}}
+							/>
+							<MenuItem
+								icon={<FolderOpen />}
+								label="Import JSON"
+								shortcut="Ctrl+Shift+I"
+								onClick={() => {
+									onImportJson?.();
+									onClose();
+								}}
+							/>
+						</div>
+					</div>
+
+					{/* Documentation Section (Story 4) */}
+					<div className="mb-4">
+						<p className="px-3 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider m-0">
+							Documentation
+						</p>
+						<div className="flex flex-col gap-1">
+							<MenuItem
+								icon={<FileText />}
+								label="Export Documentation"
+								onClick={() => {
+									onExportDocumentation?.();
 									onClose();
 								}}
 							/>
@@ -247,14 +277,37 @@ interface ShareModalProps {
 
 function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 	const [copied, setCopied] = useState(false);
+	const { scrollX, scrollY, zoom } = useCanvasStore();
+
+	// Build share URL with current viewport coordinates so the recipient
+	// sees exactly where the sharer is looking
 	const shareUrl =
 		typeof window !== "undefined"
-			? `${window.location.origin}/canvas/${roomId}`
+			? `${window.location.origin}/canvas/${roomId}?x=${Math.round(scrollX)}&y=${Math.round(scrollY)}&z=${zoom.toFixed(2)}`
 			: "";
 
 	const handleCopy = async () => {
 		try {
-			await navigator.clipboard.writeText(shareUrl);
+			if (navigator.clipboard && window.isSecureContext) {
+				await navigator.clipboard.writeText(shareUrl);
+			} else {
+				// Fallback for non-HTTPS (like http://IP:3000)
+				const textArea = document.createElement("textarea");
+				textArea.value = shareUrl;
+				// Avoid scrolling to bottom
+				textArea.style.top = "0";
+				textArea.style.left = "0";
+				textArea.style.position = "fixed";
+				document.body.appendChild(textArea);
+				textArea.focus();
+				textArea.select();
+				try {
+					document.execCommand("copy");
+				} catch (err) {
+					console.error("Fallback: Oops, unable to copy", err);
+				}
+				document.body.removeChild(textArea);
+			}
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch (err) {
@@ -433,9 +486,16 @@ export function SavingStatusIndicator() {
 interface HeaderLeftProps {
 	onClearCanvas?: () => void;
 	onExport?: (format: "png" | "svg" | "json") => void;
+	onImportJson?: () => void;
+	onExportDocumentation?: () => void;
 }
 
-export function HeaderLeft({ onClearCanvas, onExport }: HeaderLeftProps) {
+export function HeaderLeft({
+	onClearCanvas,
+	onExport,
+	onImportJson,
+	onExportDocumentation,
+}: HeaderLeftProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [canvasName, setCanvasName] = useState("");
 	const [roomId, setRoomId] = useState("");
@@ -443,7 +503,8 @@ export function HeaderLeft({ onClearCanvas, onExport }: HeaderLeftProps) {
 	const [saving, setSaving] = useState(false);
 	const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
-	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+	const HTTP_URL =
+		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 	// Format date in a friendly way
 	const formatDate = (dateStr: string) => {
@@ -619,6 +680,8 @@ export function HeaderLeft({ onClearCanvas, onExport }: HeaderLeftProps) {
 				onClose={() => setMenuOpen(false)}
 				onClearCanvas={onClearCanvas}
 				onExport={onExport}
+				onImportJson={onImportJson}
+				onExportDocumentation={onExportDocumentation}
 			/>
 		</>
 	);

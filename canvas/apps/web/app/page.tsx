@@ -1,18 +1,28 @@
 "use client";
 
 import type { User } from "@supabase/supabase-js";
-import { ArrowRight, LogOut, Plus, Sparkles, Users, Zap } from "lucide-react";
+import {
+	ArrowRight,
+	LogOut,
+	Plus,
+	Sparkles,
+	Trash2,
+	Users,
+	Zap,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import Antigravity from "../components/Antigravity";
-import { Dashboard } from "../components/Dashboard";
+import { FolderView } from "../components/FolderView";
+import { TrashView } from "../components/TrashView";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { supabase } from "../lib/supabase.client";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 export default function Home() {
 	const router = useRouter();
@@ -20,15 +30,22 @@ export default function Home() {
 	const [user, setUser] = useState<User | null>(null);
 	const [authLoading, setAuthLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
+	const [activeTab, setActiveTab] = useState<"canvases" | "trash">("canvases");
 
 	// Listen for auth state
 	useEffect(() => {
 		const getSession = async () => {
-			const {
-				data: { session },
-			} = await supabase.auth.getSession();
-			setUser(session?.user ?? null);
-			setAuthLoading(false);
+			try {
+				const {
+					data: { session },
+				} = await supabase.auth.getSession();
+				setUser(session?.user ?? null);
+			} catch (err) {
+				console.warn("Failed to fetch session (network may be down):", err);
+				setUser(null);
+			} finally {
+				setAuthLoading(false);
+			}
 		};
 		getSession();
 
@@ -71,11 +88,14 @@ export default function Home() {
 				body: JSON.stringify({ name: "Untitled Canvas" }),
 			});
 
+			const data = await res.json();
 			if (res.ok) {
-				const data = await res.json();
 				router.push(`/canvas/${data.data.roomId}`);
 			} else {
-				console.error("Failed to create canvas");
+				console.error(
+					"Failed to create canvas:",
+					data?.message ?? res.statusText,
+				);
 			}
 		} catch (e) {
 			console.error("Error creating canvas:", e);
@@ -307,11 +327,33 @@ export default function Home() {
 				<section className="px-6 py-16">
 					<div className="max-w-6xl mx-auto">
 						<div className="flex items-center justify-between mb-8">
-							<h2 className="text-2xl font-bold text-gray-900 font-heading">
-								Recent Canvases
-							</h2>
+							<div className="flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-xl p-1">
+								<button
+									type="button"
+									onClick={() => setActiveTab("canvases")}
+									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+										activeTab === "canvases"
+											? "bg-white text-gray-900 shadow-sm"
+											: "text-gray-500 hover:text-gray-700"
+									}`}
+								>
+									My Canvases
+								</button>
+								<button
+									type="button"
+									onClick={() => setActiveTab("trash")}
+									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+										activeTab === "trash"
+											? "bg-white text-gray-900 shadow-sm"
+											: "text-gray-500 hover:text-gray-700"
+									}`}
+								>
+									<Trash2 size={14} />
+									Trash
+								</button>
+							</div>
 						</div>
-						<Dashboard />
+						{activeTab === "canvases" ? <FolderView /> : <TrashView />}
 					</div>
 				</section>
 			)}

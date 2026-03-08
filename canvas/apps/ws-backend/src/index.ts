@@ -1,5 +1,6 @@
 import "./env.js";
 
+import http from "node:http";
 import { Database } from "@hocuspocus/extension-database";
 import { Logger } from "@hocuspocus/extension-logger";
 import { Server } from "@hocuspocus/server";
@@ -224,6 +225,22 @@ const server = Server.configure({
 			},
 		}),
 	],
+});
+
+// Start a small HTTP health-check server alongside Hocuspocus
+const HEALTH_PORT = parseInt(process.env.WS_HEALTH_PORT ?? "8081", 10);
+const healthServer = http.createServer((_req, res) => {
+	res.writeHead(200, { "Content-Type": "application/json" });
+	res.end(
+		JSON.stringify({
+			status: "ok",
+			service: "ws-backend",
+			timestamp: new Date().toISOString(),
+		}),
+	);
+});
+healthServer.listen(HEALTH_PORT, () => {
+	console.log(`WS health-check server running on port ${HEALTH_PORT}`);
 });
 
 server.listen().then(() => {

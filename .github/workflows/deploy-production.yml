@@ -1,0 +1,69 @@
+name: Deploy to Production
+
+on:
+    workflow_dispatch:
+    workflow_run:
+        workflows: ["Docker Build & Publish"]
+        types: [completed]
+        branches: [prod]
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        if: >
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+
+        environment: production
+
+        permissions:
+            contents: read
+            packages: read
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: prod
+
+            - name: Deploy via SSH
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.PRODUCTION_SSH_HOST }}
+                  username: ${{ secrets.PRODUCTION_SSH_USER }}
+                  key: ${{ secrets.PRODUCTION_SSH_KEY }}
+                  script: |
+                      set -e
+
+                      # Navigate to project directory
+                      cd ~/digital-canvas
+
+                      # Pull latest code (for compose files & configs)
+                      git fetch origin prod
+                      git checkout prod
+                      git pull origin prod
+
+                      # Login to GHCR
+                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+                      # Export GHCR_OWNER for compose image references
+                      export GHCR_OWNER="${{ github.repository_owner }}"
+
+                      # Pull latest images & deploy
+                      cd canvas
+                      docker compose --env-file .env -f docker-compose.yml -f docker-compose.production.yml pull
+                      docker compose --env-file .env -f docker-compose.yml -f docker-compose.production.yml up -d --remove-orphans
+
+                      # Prune old images
+                      docker image prune -f
+
+            - name: Verify deployment health
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.PRODUCTION_SSH_HOST }}
+                  username: ${{ secrets.PRODUCTION_SSH_USER }}
+                  key: ${{ secrets.PRODUCTION_SSH_KEY }}
+                  script: |
+                      sleep 30
+                      curl -sf http://localhost:3000/ > /dev/null && echo "✅ Web OK" || echo "❌ Web FAILED"
+                      curl -sf http://localhost:8000/health > /dev/null && echo "✅ HTTP Backend OK" || echo "❌ HTTP Backend FAILED"
+                      curl -sf http://localhost:8081/ > /dev/null && echo "✅ WS Backend OK" || echo "❌ WS Backend FAILED"

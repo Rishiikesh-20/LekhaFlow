@@ -1,10 +1,13 @@
+"use client";
+
 import { File, Grid, List, Plus, Share2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.client";
 import { Button } from "./ui/Button";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 interface Canvas {
 	id: string;
@@ -22,37 +25,51 @@ export function Dashboard() {
 	const router = useRouter();
 
 	useEffect(() => {
+		let cancelled = false;
+
 		const fetchCanvases = async () => {
-			const {
-				data: { session },
-			} = await supabase.auth.getSession();
-
-			if (!session) {
-				setLoading(false);
-				return;
-			}
-
-			setCurrentUserId(session.user.id);
-
 			try {
-				const res = await fetch(`${HTTP_URL}/api/v1/canvas`, {
-					headers: {
-						Authorization: `Bearer ${session.access_token}`,
-					},
-				});
-				if (res.ok) {
-					const json = await res.json();
-					const list = json?.data?.canvases ?? json?.canvases ?? [];
-					setCanvases(Array.isArray(list) ? list : []);
+				const {
+					data: { session },
+				} = await supabase.auth.getSession();
+
+				if (cancelled) return;
+
+				if (!session) {
+					setLoading(false);
+					return;
 				}
-			} catch (e) {
-				console.error(e);
-			} finally {
+
+				setCurrentUserId(session.user.id);
+
+				try {
+					const res = await fetch(`${HTTP_URL}/api/v1/canvas`, {
+						headers: {
+							Authorization: `Bearer ${session.access_token}`,
+						},
+					});
+					if (!cancelled && res.ok) {
+						const json = await res.json();
+						const list = json?.data?.canvases ?? json?.canvases ?? [];
+						setCanvases(Array.isArray(list) ? list : []);
+					}
+				} catch (e) {
+					if (!cancelled) console.error(e);
+				} finally {
+					if (!cancelled) setLoading(false);
+				}
+			} catch (err) {
+				if (cancelled) return;
+				if (err instanceof Error && err.name === "AbortError") return;
+				console.error("[Dashboard] getSession failed:", err);
 				setLoading(false);
 			}
 		};
 
 		fetchCanvases();
+		return () => {
+			cancelled = true;
+		};
 	}, []);
 
 	const handleDelete = async (id: string, e: React.MouseEvent) => {

@@ -36,6 +36,24 @@ export function CanvasPageClient({ roomId }: CanvasPageClientProps) {
 		return () => subscription.unsubscribe();
 	}, []);
 
+	// Fire-and-forget: update last_accessed_at with 2s debounce
+	useEffect(() => {
+		if (!token) return;
+
+		const HTTP_URL =
+			process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
+		const timer = setTimeout(() => {
+			fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/touch`, {
+				method: "PATCH",
+				headers: { Authorization: `Bearer ${token}` },
+			}).catch(() => {
+				// Silently ignore errors — this is a non-critical update
+			});
+		}, 2000);
+
+		return () => clearTimeout(timer);
+	}, [token, roomId]);
+
 	if (loading) {
 		return (
 			<div className="flex min-h-screen items-center justify-center">

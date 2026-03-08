@@ -59,6 +59,12 @@ export interface GhostPreview {
 	fillColor: string;
 	/** Stroke style */
 	strokeStyle: "solid" | "dashed" | "dotted";
+	/** Brush type for freedraw strokes */
+	brushType?: string;
+	/** Stable seed for deterministic brush randomness (freedraw only) */
+	seedId?: string;
+	/** Element opacity (0-100 scale), used to scale ghost alpha appropriately */
+	opacity?: number;
 	/** Client display name */
 	clientName: string;
 	/** Client color tint for ghost differentiation */

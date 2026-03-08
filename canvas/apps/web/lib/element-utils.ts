@@ -81,6 +81,7 @@ function createBaseElement(
 		opacity: options.opacity ?? DEFAULT_ELEMENT_PROPS.opacity,
 		roughness: options.roughness ?? DEFAULT_ELEMENT_PROPS.roughness,
 		seed: Math.floor(Math.random() * 2147483647),
+		roughStyle: options.roughStyle ?? undefined,
 		version: 1,
 		versionNonce: Math.floor(Math.random() * 2147483647),
 		isDeleted: false,
@@ -302,6 +303,8 @@ export function createFreedraw(
 		points,
 		pressures: points.map((p) => p[2] ?? 0.5),
 		simulatePressure: true,
+		brushType: options.brushType ?? "pencil",
+		seedId: options.seedId ?? uuidv4(),
 	} as FreedrawElement;
 }
 
@@ -336,6 +339,7 @@ export function createText(
 		lineHeight: options.lineHeight ?? 1.25,
 		containerId: options.containerId ?? null,
 		originalText: text,
+		runs: options.runs,
 	} as TextElement;
 }
 
@@ -493,29 +497,46 @@ export function isPointInElement(
 	element: CanvasElement,
 	threshold = 10,
 ): boolean {
-	// TODO: Account for rotation
+	// If the element is rotated, un-rotate the test point around the element
+	// center so that axis-aligned hit tests work in local coordinates.
+	let testPoint = point;
+	if (element.angle && element.angle !== 0) {
+		const cx = element.x + element.width / 2;
+		const cy = element.y + element.height / 2;
+		const rad = (-element.angle * Math.PI) / 180; // negative = un-rotate
+		const cos = Math.cos(rad);
+		const sin = Math.sin(rad);
+		testPoint = {
+			x: cx + (point.x - cx) * cos - (point.y - cy) * sin,
+			y: cy + (point.x - cx) * sin + (point.y - cy) * cos,
+		};
+	}
 
 	switch (element.type) {
 		case "rectangle":
 		case "text":
-			return isPointInRectangle(point, element, threshold);
+			return isPointInRectangle(testPoint, element, threshold);
 
 		case "ellipse":
-			return isPointInEllipse(point, element, threshold);
+			return isPointInEllipse(testPoint, element, threshold);
 
 		case "diamond":
-			return isPointInDiamond(point, element, threshold);
+			return isPointInDiamond(testPoint, element, threshold);
 
 		case "line":
 		case "arrow":
 			return isPointNearLine(
-				point,
+				testPoint,
 				element as LineElement | ArrowElement,
 				threshold,
 			);
 
 		case "freedraw":
-			return isPointNearFreedraw(point, element as FreedrawElement, threshold);
+			return isPointNearFreedraw(
+				testPoint,
+				element as FreedrawElement,
+				threshold,
+			);
 
 		default:
 			return false;
@@ -693,11 +714,62 @@ export function getElementAtPoint(
 }
 
 /**
- * Find all elements within a selection rectangle
+ * Find ALL elements at a point, sorted by zIndex (topmost first).
  *
- * @param selectionBox - Selection rectangle
+ * Used for:
+ * - Layer cycling (Alt+Click to select elements below the top one)
+ * - Unified hit testing that checks all overlapping objects
+ *
+ * @param point - Point to test
+ * @param elements - Array of elements (any order)
+ * @returns Array of hit elements, sorted topmost-first by zIndex
+ */
+export function getAllElementsAtPoint(
+	point: Point,
+	elements: CanvasElement[],
+): CanvasElement[] {
+	const hits: CanvasElement[] = [];
+	for (const element of elements) {
+		if (!element.isDeleted && isPointInElement(point, element)) {
+			hits.push(element);
+		}
+	}
+	// Sort by zIndex descending (topmost first)
+	hits.sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+	return hits;
+}
+
+/**
+ * Normalize a rectangle so width/height are always positive.
+ * Handles marquee rects where the user dragged left/up.
+ */
+export function normalizeRect(rect: BoundingBox): BoundingBox {
+	return {
+		x: rect.width < 0 ? rect.x + rect.width : rect.x,
+		y: rect.height < 0 ? rect.y + rect.height : rect.y,
+		width: Math.abs(rect.width),
+		height: Math.abs(rect.height),
+	};
+}
+
+/**
+ * Check whether two axis-aligned bounding boxes intersect.
+ */
+export function rectsIntersect(a: BoundingBox, b: BoundingBox): boolean {
+	return (
+		a.x < b.x + b.width &&
+		a.x + a.width > b.x &&
+		a.y < b.y + b.height &&
+		a.y + a.height > b.y
+	);
+}
+
+/**
+ * Find all elements whose rotated AABB intersects a selection rectangle.
+ *
+ * @param selectionBox - Selection rectangle (must be normalised)
  * @param elements - Array of elements
- * @returns Array of elements within selection
+ * @returns Array of intersecting, non-deleted elements
  */
 export function getElementsInSelection(
 	selectionBox: BoundingBox,
@@ -705,16 +777,8 @@ export function getElementsInSelection(
 ): CanvasElement[] {
 	return elements.filter((element) => {
 		if (element.isDeleted) return false;
-
-		const bounds = getElementBounds(element);
-
-		// Check if element bounds intersect with selection
-		return (
-			bounds.x < selectionBox.x + selectionBox.width &&
-			bounds.x + bounds.width > selectionBox.x &&
-			bounds.y < selectionBox.y + selectionBox.height &&
-			bounds.y + bounds.height > selectionBox.y
-		);
+		const bounds = getRotatedBoundingBox(element);
+		return rectsIntersect(selectionBox, bounds);
 	});
 }
 

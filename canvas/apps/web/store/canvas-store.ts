@@ -42,11 +42,13 @@
  */
 
 import type {
+	ActiveTextStyle,
 	CanvasElement,
 	Collaborator,
 	FillStyle,
 	Point,
 	StrokeStyle,
+	TextRun,
 	Tool,
 } from "@repo/common";
 import { create } from "zustand";
@@ -63,6 +65,18 @@ import { useShallow } from "zustand/react/shallow";
 interface HistoryEntry {
 	elements: Map<string, CanvasElement>;
 	timestamp: number;
+}
+
+/**
+ * Activity log entry for the sidebar
+ */
+export interface ActivityLogEntry {
+	id: string;
+	timestamp: number;
+	userName: string;
+	userColor: string;
+	action: "added" | "updated" | "deleted";
+	elementType: string;
 }
 
 /**
@@ -136,6 +150,34 @@ interface CanvasState {
 	/** Current opacity (0-100) */
 	currentOpacity: number;
 
+	/** Current brush type for freedraw tool */
+	currentBrushType: "pencil" | "spray" | "watercolour";
+
+	/** Whether sketch-style (Rough.js) rendering is enabled for new shapes */
+	currentRoughEnabled: boolean;
+
+	/** Sloppiness of the sketch effect (0 = clean, 3 = very rough) */
+	currentSloppiness: number;
+
+	// ─────────────────────────────────────────────────────────────────
+	// TEXT FORMATTING STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Active text style for the toolbar (applied to new text or future selections) */
+	activeTextStyle: ActiveTextStyle;
+
+	/** Whether currently editing a text element */
+	isTextEditing: boolean;
+
+	/** ID of the text element being edited (null if creating new) */
+	editingTextElementId: string | null;
+
+	/** Monotonic sequence number for format commands dispatched by the toolbar */
+	_formatCommandSeq: number;
+
+	/** Style payload of the latest format command (null when idle) */
+	_formatCommandStyle: Partial<Omit<TextRun, "text">> | null;
+
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT STATE
 	// ─────────────────────────────────────────────────────────────────
@@ -196,6 +238,32 @@ interface CanvasState {
 
 	/** My user color */
 	myColor: string;
+
+	// ─────────────────────────────────────────────────────────────────
+	// ACTIVITY LOG STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Recent activity log entries (max 50, most-recent first) */
+	activityLog: ActivityLogEntry[];
+
+	/** Whether the activity sidebar is open */
+	isActivitySidebarOpen: boolean;
+
+	/** Whether the AI chat sidebar is open */
+	isAiChatOpen: boolean;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI PREVIEW STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Whether AI preview mode is active */
+	isAiPreviewActive: boolean;
+
+	/** Map of element id → partial updates being previewed */
+	aiPreviewChanges: Map<string, Partial<CanvasElement>>;
+
+	/** Map of element id → original element snapshot before preview */
+	aiPreviewOriginals: Map<string, CanvasElement>;
 }
 
 /**
@@ -214,6 +282,11 @@ interface CanvasActions {
 
 	/** Update an existing element */
 	updateElement: (id: string, updates: Partial<CanvasElement>) => void;
+
+	/** Update multiple elements in a single store update (no intermediate re-renders) */
+	batchUpdateElements: (
+		updates: Array<{ id: string; updates: Partial<CanvasElement> }>,
+	) => void;
 
 	/** Delete elements by IDs */
 	deleteElements: (ids: string[]) => void;
@@ -264,6 +337,28 @@ interface CanvasActions {
 
 	/** Set opacity */
 	setOpacity: (opacity: number) => void;
+
+	/** Set brush type */
+	setBrushType: (brushType: "pencil" | "spray" | "watercolour") => void;
+
+	/** Set rough style enabled */
+	setRoughEnabled: (enabled: boolean) => void;
+
+	/** Set sloppiness level */
+	setSloppiness: (sloppiness: number) => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// TEXT FORMATTING ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Update active text style (partial merge) */
+	setActiveTextStyle: (style: Partial<ActiveTextStyle>) => void;
+
+	/** Dispatch a format command — updates activeTextStyle AND signals the editor */
+	dispatchFormatCommand: (style: Partial<Omit<TextRun, "text">>) => void;
+
+	/** Set text editing mode on/off */
+	setTextEditing: (isEditing: boolean, elementId?: string | null) => void;
 
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT ACTIONS
@@ -343,6 +438,45 @@ interface CanvasActions {
 
 	/** Toggle read-only (lock) mode */
 	setReadOnly: (isReadOnly: boolean) => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// ACTIVITY LOG ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Add an activity log entry (prepends, caps at 50) */
+	addActivityLogEntry: (entry: ActivityLogEntry) => void;
+
+	/** Toggle the activity sidebar */
+	setActivitySidebarOpen: (open: boolean) => void;
+
+	/** Clear the activity log */
+	clearActivityLog: () => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI CHAT ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Toggle the AI chat sidebar */
+	setAiChatOpen: (open: boolean) => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// AI PREVIEW ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Enter AI preview mode with changes and their originals */
+	setAiPreview: (
+		changes: Map<string, Partial<CanvasElement>>,
+		originals: Map<string, CanvasElement>,
+	) => void;
+
+	/** Accept AI preview (commit changes, exit preview mode) */
+	acceptAiPreview: () => void;
+
+	/** Reject AI preview (revert to originals, exit preview mode) */
+	rejectAiPreview: () => void;
+
+	/** Clear AI preview state */
+	clearAiPreview: () => void;
 }
 
 // ============================================================================
@@ -391,6 +525,22 @@ export const initialState: CanvasState = {
 	currentStrokeStyle: "solid",
 	currentFillStyle: "solid",
 	currentOpacity: 100,
+	currentBrushType: "pencil" as const,
+	currentRoughEnabled: false,
+	currentSloppiness: 1,
+
+	// Text formatting
+	activeTextStyle: {
+		fontFamily: "Arial",
+		fontSize: 20,
+		bold: false,
+		italic: false,
+		underline: false,
+	},
+	isTextEditing: false,
+	editingTextElementId: null,
+	_formatCommandSeq: 0,
+	_formatCommandStyle: null,
 
 	// Viewport
 	scrollX: 0,
@@ -414,6 +564,18 @@ export const initialState: CanvasState = {
 	// Identity - set by CanvasAuthWrapper from actual user data
 	myName: "User",
 	myColor: getRandomColor(),
+
+	// Activity log
+	activityLog: [],
+	isActivitySidebarOpen: false,
+
+	// AI chat
+	isAiChatOpen: false,
+
+	// AI preview
+	isAiPreviewActive: false,
+	aiPreviewChanges: new Map(),
+	aiPreviewOriginals: new Map(),
 };
 
 /**
@@ -445,6 +607,18 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
 				const newElements = new Map(state.elements);
 				newElements.set(id, { ...element, ...updates } as CanvasElement);
+				return { elements: newElements };
+			}),
+
+		batchUpdateElements: (updates) =>
+			set((state) => {
+				const newElements = new Map(state.elements);
+				for (const { id, updates: partial } of updates) {
+					const element = newElements.get(id);
+					if (element) {
+						newElements.set(id, { ...element, ...partial } as CanvasElement);
+					}
+				}
 				return { elements: newElements };
 			}),
 
@@ -510,6 +684,41 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 		setStrokeStyle: (style) => set({ currentStrokeStyle: style }),
 		setFillStyle: (style) => set({ currentFillStyle: style }),
 		setOpacity: (opacity) => set({ currentOpacity: opacity }),
+		setBrushType: (brushType) => set({ currentBrushType: brushType }),
+		setRoughEnabled: (enabled) => set({ currentRoughEnabled: enabled }),
+		setSloppiness: (sloppiness) =>
+			set({ currentSloppiness: Math.max(0, Math.min(3, sloppiness)) }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// TEXT FORMATTING ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setActiveTextStyle: (style) =>
+			set((state) => ({
+				activeTextStyle: { ...state.activeTextStyle, ...style },
+			})),
+
+		dispatchFormatCommand: (style) =>
+			set((state) => {
+				const updates: Partial<ActiveTextStyle> = {};
+				if ("bold" in style) updates.bold = style.bold ?? false;
+				if ("italic" in style) updates.italic = style.italic ?? false;
+				if ("underline" in style) updates.underline = style.underline ?? false;
+				if ("fontSize" in style) updates.fontSize = style.fontSize ?? 20;
+				if ("fontFamily" in style)
+					updates.fontFamily = style.fontFamily ?? "Arial";
+				return {
+					activeTextStyle: { ...state.activeTextStyle, ...updates },
+					_formatCommandSeq: state._formatCommandSeq + 1,
+					_formatCommandStyle: style,
+				};
+			}),
+
+		setTextEditing: (isEditing, elementId = null) =>
+			set({
+				isTextEditing: isEditing,
+				editingTextElementId: isEditing ? (elementId ?? null) : null,
+			}),
 
 		// ─────────────────────────────────────────────────────────────────
 		// VIEWPORT ACTIONS
@@ -662,6 +871,64 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 					: { activeTool: state.activeTool }),
 			}));
 		},
+
+		// ─────────────────────────────────────────────────────────────────
+		// ACTIVITY LOG ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		addActivityLogEntry: (entry) =>
+			set((state) => ({
+				activityLog: [entry, ...state.activityLog].slice(0, 50),
+			})),
+
+		setActivitySidebarOpen: (open) => set({ isActivitySidebarOpen: open }),
+
+		clearActivityLog: () => set({ activityLog: [] }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// AI CHAT ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setAiChatOpen: (open) => set({ isAiChatOpen: open }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// AI PREVIEW ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setAiPreview: (changes, originals) =>
+			set({
+				isAiPreviewActive: true,
+				aiPreviewChanges: new Map(changes),
+				aiPreviewOriginals: new Map(originals),
+			}),
+
+		acceptAiPreview: () =>
+			set({
+				isAiPreviewActive: false,
+				aiPreviewChanges: new Map(),
+				aiPreviewOriginals: new Map(),
+			}),
+
+		rejectAiPreview: () =>
+			set((state) => {
+				const newElements = new Map(state.elements);
+				for (const [id, original] of state.aiPreviewOriginals) {
+					newElements.set(id, original);
+				}
+				return {
+					elements: newElements,
+					isAiPreviewActive: false,
+					aiPreviewChanges: new Map(),
+					aiPreviewOriginals: new Map(),
+				};
+			}),
+
+		clearAiPreview: () =>
+			set({
+				isAiPreviewActive: false,
+				aiPreviewChanges: new Map(),
+				aiPreviewOriginals: new Map(),
+			}),
 	})),
 );
 
@@ -671,16 +938,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
 /**
  * Get selected elements as array
+ *
+ * useShallow prevents infinite loops by doing shallow comparison
+ * of array contents instead of reference equality
  */
 export const useSelectedElements = () => {
-	return useCanvasStore((state) => {
-		const selected: CanvasElement[] = [];
-		for (const id of state.selectedElementIds) {
-			const element = state.elements.get(id);
-			if (element) selected.push(element);
-		}
-		return selected;
-	});
+	return useCanvasStore(
+		useShallow((state) => {
+			const selected: CanvasElement[] = [];
+			for (const id of state.selectedElementIds) {
+				const element = state.elements.get(id);
+				if (element) selected.push(element);
+			}
+			return selected;
+		}),
+	);
 };
 
 /**

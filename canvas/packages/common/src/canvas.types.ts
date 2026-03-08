@@ -127,6 +127,18 @@ export interface ExcalidrawElementBase {
 	/** Seed for consistent rough.js rendering */
 	seed: number;
 
+	/**
+	 * Sketch-style (Rough.js) rendering configuration.
+	 * Applies to non-freehand shapes only (rectangle, ellipse, diamond, line, arrow).
+	 * When enabled, shapes are rendered with a hand-drawn look via Rough.js.
+	 */
+	roughStyle?: {
+		/** Whether sketch rendering is active */
+		enabled: boolean;
+		/** Sloppiness of the hand-drawn effect (0 = clean, 3 = very rough) */
+		sloppiness: number;
+	};
+
 	/** Version number, incremented on each change */
 	version: number;
 
@@ -153,6 +165,12 @@ export interface ExcalidrawElementBase {
 
 	/** Timestamp of creation (Unix epoch) */
 	created?: number;
+
+	/** Name of the user who created this element */
+	createdBy?: string;
+
+	/** Name of the user who last modified this element */
+	lastModifiedBy?: string;
 
 	/** Explicit z-index for layering */
 	zIndex?: number;
@@ -239,6 +257,47 @@ export interface FreedrawElement extends ExcalidrawElementBase {
 	pressures: number[];
 	/** Smoothing applied */
 	simulatePressure: boolean;
+	/** Brush style used for this stroke */
+	brushType?: string;
+	/**
+	 * Stable seed for deterministic brush randomness.
+	 * Generated once on stroke creation (pointerdown) and kept immutable.
+	 * Ensures spray dots / watercolour wash are identical
+	 * across local, remote, and ghost preview rendering.
+	 */
+	seedId?: string;
+}
+
+/**
+ * Inline text run — a contiguous range of text sharing the same formatting.
+ * The full text is reconstructed by concatenating all run `text` values in order.
+ */
+export interface TextRun {
+	/** The text content of this run */
+	text: string;
+	/** Font family name (e.g. "Arial", "Georgia") */
+	fontFamily?: string;
+	/** Font size in pixels */
+	fontSize?: number;
+	/** Bold flag */
+	bold?: boolean;
+	/** Italic flag */
+	italic?: boolean;
+	/** Underline flag */
+	underline?: boolean;
+}
+
+/**
+ * Active text style — tracks the current formatting state for the toolbar.
+ * When a user toggles bold/italic etc., these values are updated in the store
+ * and will be applied to newly typed text or selected ranges (Phase 2+).
+ */
+export interface ActiveTextStyle {
+	fontFamily: string;
+	fontSize: number;
+	bold: boolean;
+	italic: boolean;
+	underline: boolean;
 }
 
 /**
@@ -247,11 +306,11 @@ export interface FreedrawElement extends ExcalidrawElementBase {
  */
 export interface TextElement extends ExcalidrawElementBase {
 	type: "text";
-	/** Text content */
+	/** Text content (plain-text, kept in sync with runs for backward compat) */
 	text: string;
-	/** Font size in pixels */
+	/** Font size in pixels (default / box-level) */
 	fontSize: number;
-	/** Font family ID */
+	/** Font family ID (legacy, kept for backward compat) */
 	fontFamily: number;
 	/** Text alignment */
 	textAlign: "left" | "center" | "right";
@@ -263,6 +322,8 @@ export interface TextElement extends ExcalidrawElementBase {
 	containerId: string | null;
 	/** Original text before wrapping */
 	originalText: string;
+	/** Rich-text inline formatting runs (Phase 1 foundation — optional, backward compat) */
+	runs?: TextRun[];
 }
 
 /**
