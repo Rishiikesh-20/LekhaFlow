@@ -6,7 +6,9 @@ import {
 	getCanvas,
 	getCanvases,
 	getRecentCanvases,
+	getStarredCanvases,
 	searchCanvases,
+	toggleStar,
 	touchCanvasAccess,
 	updateCanvas,
 } from "../controller/canvas";
@@ -17,10 +19,12 @@ export const canvasRouter: RouterType = Router();
 canvasRouter.get("/", authMiddleware, getCanvases);
 canvasRouter.get("/search", authMiddleware, searchCanvases);
 canvasRouter.get("/recent", authMiddleware, getRecentCanvases);
+canvasRouter.get("/starred", authMiddleware, getStarredCanvases);
 canvasRouter.get("/:roomId", authMiddleware, getCanvas);
 canvasRouter.post("/create-canvas", authMiddleware, createCanvas);
 canvasRouter.put("/:roomId", authMiddleware, updateCanvas);
 canvasRouter.patch("/:roomId/touch", authMiddleware, touchCanvasAccess);
+canvasRouter.patch("/:roomId/star", authMiddleware, toggleStar);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
 
 // Canvas-scoped tag routes

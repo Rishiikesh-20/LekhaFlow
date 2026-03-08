@@ -25,9 +25,16 @@ export const UpdateCanvasSchema = z.object({
 	name: z.string().min(1).max(50).optional(),
 	data: z.string().optional(),
 	thumbnail_url: z.string().optional(),
+	isStarred: z.boolean().optional(),
 });
 
 export type UpdateCanvasType = z.infer<typeof UpdateCanvasSchema>;
+
+export const ToggleStarSchema = z.object({
+	isStarred: z.boolean(),
+});
+
+export type ToggleStarType = z.infer<typeof ToggleStarSchema>;
 
 export const SaveVersionSchema = z.object({
 	name: z.string().min(1, "Version name is required").max(100),

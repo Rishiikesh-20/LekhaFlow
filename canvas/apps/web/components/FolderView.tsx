@@ -17,6 +17,7 @@ import {
 	Plus,
 	Search,
 	Share2,
+	Star,
 	Tag,
 	Trash2,
 	X,
@@ -44,6 +45,7 @@ interface CanvasItem {
 	thumbnail_url: string | null;
 	owner_id: string;
 	folder_id: string | null;
+	is_starred?: boolean;
 }
 
 interface BreadcrumbItem {
@@ -77,6 +79,7 @@ export function FolderView() {
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchTotal, setSearchTotal] = useState(0);
 	const [recentCanvases, setRecentCanvases] = useState<CanvasItem[]>([]);
+	const [starredCanvases, setStarredCanvases] = useState<CanvasItem[]>([]);
 	const [allTags, setAllTags] = useState<TagItem[]>([]);
 	const [canvasTags, setCanvasTags] = useState<Record<string, TagItem[]>>({});
 	const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
@@ -190,6 +193,29 @@ export function FolderView() {
 
 		fetchRecent();
 	}, [getAuthHeaders]);
+
+	// Fetch starred canvases
+	const fetchStarred = useCallback(async () => {
+		const headers = await getAuthHeaders();
+		if (!headers) return;
+
+		try {
+			const res = await fetch(`${HTTP_URL}/api/v1/canvas/starred`, {
+				headers,
+			});
+			if (res.ok) {
+				const json = await res.json();
+				const data = json?.data ?? json;
+				setStarredCanvases(data.canvases ?? []);
+			}
+		} catch (e) {
+			console.error("Error fetching starred canvases:", e);
+		}
+	}, [getAuthHeaders]);
+
+	useEffect(() => {
+		fetchStarred();
+	}, [fetchStarred]);
 
 	// Fetch all tags
 	const fetchTags = useCallback(async () => {
@@ -671,6 +697,68 @@ export function FolderView() {
 		}
 	};
 
+	const handleToggleStar = async (
+		canvasId: string,
+		currentStarred: boolean,
+	) => {
+		const newStarred = !currentStarred;
+
+		// Optimistic update
+		setCanvases((prev) =>
+			prev.map((c) =>
+				c.id === canvasId ? { ...c, is_starred: newStarred } : c,
+			),
+		);
+		setSearchResults((prev) =>
+			prev.map((c) =>
+				c.id === canvasId ? { ...c, is_starred: newStarred } : c,
+			),
+		);
+
+		if (newStarred) {
+			const canvas = [...canvases, ...searchResults].find(
+				(c) => c.id === canvasId,
+			);
+			if (canvas) {
+				setStarredCanvases((prev) => {
+					if (prev.some((c) => c.id === canvasId)) return prev;
+					return [...prev, { ...canvas, is_starred: true }];
+				});
+			}
+		} else {
+			setStarredCanvases((prev) => prev.filter((c) => c.id !== canvasId));
+		}
+
+		const headers = await getAuthHeaders();
+		if (!headers) return;
+
+		try {
+			const res = await fetch(`${HTTP_URL}/api/v1/canvas/${canvasId}/star`, {
+				method: "PATCH",
+				headers,
+				body: JSON.stringify({ isStarred: newStarred }),
+			});
+			if (!res.ok) {
+				// Revert on failure
+				setCanvases((prev) =>
+					prev.map((c) =>
+						c.id === canvasId ? { ...c, is_starred: currentStarred } : c,
+					),
+				);
+				fetchStarred();
+			}
+		} catch (e) {
+			console.error("Error toggling star:", e);
+			// Revert on exception
+			setCanvases((prev) =>
+				prev.map((c) =>
+					c.id === canvasId ? { ...c, is_starred: currentStarred } : c,
+				),
+			);
+			fetchStarred();
+		}
+	};
+
 	const formatDate = (dateStr: string | null) => {
 		if (!dateStr) return "";
 		const date = new Date(dateStr);
@@ -696,6 +784,84 @@ export function FolderView() {
 
 	return (
 		<div className="space-y-4">
+			{/* ⭐ Starred Canvases */}
+			{!isSearchMode &&
+				currentFolderId === null &&
+				starredCanvases.length > 0 && (
+					<div className="mb-2">
+						<div className="flex items-center gap-2 mb-3">
+							<Star size={16} className="text-amber-500 fill-amber-400" />
+							<h3 className="text-sm font-semibold text-gray-700">Starred</h3>
+						</div>
+						<div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+							{starredCanvases.map((canvas) => (
+								<div
+									key={canvas.id}
+									role="button"
+									tabIndex={0}
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+									onKeyDown={(e) => {
+										if (e.key === "Enter" || e.key === " ") {
+											e.preventDefault();
+											router.push(`/canvas/${canvas.id}`);
+										}
+									}}
+									className="group flex-shrink-0 w-48 bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-amber-300 hover:shadow-lg hover:shadow-amber-100 transition-all cursor-pointer"
+								>
+									{/* Compact Thumbnail */}
+									<div className="aspect-[16/9] bg-gray-50 relative overflow-hidden">
+										{canvas.thumbnail_url ? (
+											/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
+											<img
+												src={canvas.thumbnail_url}
+												alt={canvas.name || "Canvas preview"}
+												className="w-full h-full object-cover"
+												loading="lazy"
+											/>
+										) : (
+											<>
+												<div
+													className="absolute inset-0 opacity-[0.4]"
+													style={{
+														backgroundImage:
+															"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+														backgroundSize: "12px 12px",
+													}}
+												/>
+												<div className="w-full h-full flex items-center justify-center">
+													<File className="w-6 h-6 text-gray-300" />
+												</div>
+											</>
+										)}
+										<div className="absolute inset-0 bg-amber-500/0 group-hover:bg-amber-500/5 transition-colors flex items-start justify-end p-2">
+											<button
+												type="button"
+												onClick={(e) => {
+													e.stopPropagation();
+													handleToggleStar(canvas.id, true);
+												}}
+												className="p-1.5 rounded-full bg-white/80 backdrop-blur-sm text-amber-500 hover:text-amber-600 hover:bg-white shadow-sm transition-all opacity-0 group-hover:opacity-100"
+												title="Unstar"
+											>
+												<Star size={14} className="fill-amber-400" />
+											</button>
+										</div>
+									</div>
+									{/* Info */}
+									<div className="p-2.5">
+										<h4 className="font-medium text-xs text-gray-900 truncate">
+											{canvas.name || "Untitled"}
+										</h4>
+										<p className="text-[11px] text-gray-400 mt-0.5">
+											{formatDate(canvas.updated_at)}
+										</p>
+									</div>
+								</div>
+							))}
+						</div>
+					</div>
+				)}
+
 			{/* Jump Back In — Recent Canvases */}
 			{!isSearchMode &&
 				currentFolderId === null &&
@@ -1313,6 +1479,29 @@ export function FolderView() {
 													</p>
 												</div>
 												<div className="flex items-center gap-1">
+													{/* Star Button */}
+													<button
+														type="button"
+														onClick={(e) => {
+															e.stopPropagation();
+															handleToggleStar(canvas.id, !!canvas.is_starred);
+														}}
+														className={`p-1.5 rounded-md transition-all ${
+															canvas.is_starred
+																? "text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+																: "text-gray-400 hover:text-amber-500 hover:bg-amber-50 opacity-0 group-hover:opacity-100"
+														}`}
+														title={canvas.is_starred ? "Unstar" : "Star"}
+													>
+														<Star
+															size={14}
+															className={`transition-transform hover:scale-125 ${
+																canvas.is_starred
+																	? "fill-amber-400 text-amber-500"
+																	: ""
+															}`}
+														/>
+													</button>
 													{/* Add Tag Button */}
 													<div className="relative">
 														<button
@@ -1554,6 +1743,27 @@ export function FolderView() {
 								</div>
 							</div>
 							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+								{/* Star Button */}
+								<button
+									type="button"
+									onClick={(e) => {
+										e.stopPropagation();
+										handleToggleStar(canvas.id, !!canvas.is_starred);
+									}}
+									className={`p-1.5 rounded-md transition-all ${
+										canvas.is_starred
+											? "text-amber-500 hover:text-amber-600 hover:bg-amber-50 !opacity-100"
+											: "text-gray-400 hover:text-amber-500 hover:bg-amber-50"
+									}`}
+									title={canvas.is_starred ? "Unstar" : "Star"}
+								>
+									<Star
+										size={14}
+										className={`transition-transform hover:scale-125 ${
+											canvas.is_starred ? "fill-amber-400" : ""
+										}`}
+									/>
+								</button>
 								{/* Add Tag Button */}
 								<div className="relative">
 									<button
