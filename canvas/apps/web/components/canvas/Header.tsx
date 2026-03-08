@@ -277,14 +277,37 @@ interface ShareModalProps {
 
 function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 	const [copied, setCopied] = useState(false);
+	const { scrollX, scrollY, zoom } = useCanvasStore();
+
+	// Build share URL with current viewport coordinates so the recipient
+	// sees exactly where the sharer is looking
 	const shareUrl =
 		typeof window !== "undefined"
-			? `${window.location.origin}/canvas/${roomId}`
+			? `${window.location.origin}/canvas/${roomId}?x=${Math.round(scrollX)}&y=${Math.round(scrollY)}&z=${zoom.toFixed(2)}`
 			: "";
 
 	const handleCopy = async () => {
 		try {
-			await navigator.clipboard.writeText(shareUrl);
+			if (navigator.clipboard && window.isSecureContext) {
+				await navigator.clipboard.writeText(shareUrl);
+			} else {
+				// Fallback for non-HTTPS (like http://IP:3000)
+				const textArea = document.createElement("textarea");
+				textArea.value = shareUrl;
+				// Avoid scrolling to bottom
+				textArea.style.top = "0";
+				textArea.style.left = "0";
+				textArea.style.position = "fixed";
+				document.body.appendChild(textArea);
+				textArea.focus();
+				textArea.select();
+				try {
+					document.execCommand("copy");
+				} catch (err) {
+					console.error("Fallback: Oops, unable to copy", err);
+				}
+				document.body.removeChild(textArea);
+			}
 			setCopied(true);
 			setTimeout(() => setCopied(false), 2000);
 		} catch (err) {
@@ -480,7 +503,8 @@ export function HeaderLeft({
 	const [saving, setSaving] = useState(false);
 	const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
-	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+	const HTTP_URL =
+		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 	// Format date in a friendly way
 	const formatDate = (dateStr: string) => {
