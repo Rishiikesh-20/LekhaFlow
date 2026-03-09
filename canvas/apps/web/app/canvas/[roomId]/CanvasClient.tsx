@@ -11,7 +11,7 @@ export function CanvasClient({ roomId }: { roomId: string }) {
 			setStatus("saving");
 			try {
 				const response = await fetch(
-					`http://localhost:8000/api/v1/canvas/${roomId}`,
+					`${process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me"}/api/v1/canvas/${roomId}`,
 					{
 						method: "PUT",
 						headers: {

@@ -356,9 +356,7 @@ export function ExportModal({
 				}
 				case "text": {
 					const textEl = el as TextElement;
-					const fontSize = textEl.fontSize || 16;
 					const textAlign = textEl.textAlign || "left";
-					const lines = (textEl.text || "").split("\n");
 					let anchor = "start";
 					if (textAlign === "center") anchor = "middle";
 					if (textAlign === "right") anchor = "end";
@@ -366,16 +364,62 @@ export function ExportModal({
 					if (textAlign === "center") textX = x + Math.abs(el.width || 0) / 2;
 					if (textAlign === "right") textX = x + Math.abs(el.width || 0);
 
-					svg += `<text x="${textX}" y="${y}" fill="${stroke}" font-size="${fontSize}" text-anchor="${anchor}" opacity="${opacity}"${transform}>`;
-					for (let i = 0; i < lines.length; i++) {
-						const line = lines[i] ?? "";
-						const escaped = line
-							.replace(/&/g, "&amp;")
-							.replace(/</g, "&lt;")
-							.replace(/>/g, "&gt;");
-						svg += `<tspan x="${textX}" dy="${i === 0 ? fontSize : fontSize * 1.2}">${escaped}</tspan>`;
+					if (textEl.runs && textEl.runs.length > 0) {
+						// Rich-text SVG export: render each run with its own style
+						svg += `<text x="${textX}" y="${y}" text-anchor="${anchor}" opacity="${opacity}"${transform}>`;
+						let lineIdx = 0;
+						let runX = textX;
+						for (const run of textEl.runs) {
+							const rFontSize = run.fontSize || textEl.fontSize || 16;
+							const rFamily = run.fontFamily || "Arial";
+							const rWeight = run.bold ? "bold" : "normal";
+							const rStyle = run.italic ? "italic" : "normal";
+							const rDecoration = run.underline ? "underline" : "none";
+							const escaped = (run.text || "")
+								.replace(/&/g, "&amp;")
+								.replace(/</g, "&lt;")
+								.replace(/>/g, "&gt;");
+
+							// Split on newlines for multi-line support
+							const parts = escaped.split("\n");
+							for (let p = 0; p < parts.length; p++) {
+								const part = parts[p] ?? "";
+								if (p > 0) {
+									lineIdx++;
+									runX = textX;
+								}
+								if (part) {
+									const dyAttr =
+										lineIdx === 0 && runX === textX
+											? ` dy="${rFontSize}"`
+											: p > 0
+												? ` dy="${rFontSize * 1.25}"`
+												: "";
+									const xAttr = p > 0 ? ` x="${textX}"` : "";
+									svg += `<tspan${xAttr}${dyAttr} fill="${stroke}" font-size="${rFontSize}" font-family="${rFamily}" font-weight="${rWeight}" font-style="${rStyle}" text-decoration="${rDecoration}">${part}</tspan>`;
+								} else if (p > 0) {
+									// Empty line after newline — emit a blank tspan for spacing
+									svg += `<tspan x="${textX}" dy="${rFontSize * 1.25}"> </tspan>`;
+								}
+								runX += part.length * rFontSize * 0.6; // approximate advance
+							}
+						}
+						svg += `</text>`;
+					} else {
+						// Legacy plain-text SVG export
+						const fontSize = textEl.fontSize || 16;
+						const lines = (textEl.text || "").split("\n");
+						svg += `<text x="${textX}" y="${y}" fill="${stroke}" font-size="${fontSize}" text-anchor="${anchor}" opacity="${opacity}"${transform}>`;
+						for (let i = 0; i < lines.length; i++) {
+							const line = lines[i] ?? "";
+							const escaped = line
+								.replace(/&/g, "&amp;")
+								.replace(/</g, "&lt;")
+								.replace(/>/g, "&gt;");
+							svg += `<tspan x="${textX}" dy="${i === 0 ? fontSize : fontSize * 1.2}">${escaped}</tspan>`;
+						}
+						svg += `</text>`;
 					}
-					svg += `</text>`;
 					break;
 				}
 			}

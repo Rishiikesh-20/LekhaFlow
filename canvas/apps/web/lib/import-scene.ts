@@ -47,6 +47,22 @@ function validateElement(raw: unknown): CanvasElement | null {
 
 	if (typeof el.x !== "number" || typeof el.y !== "number") return null;
 
+	// Validate runs array if present on text elements
+	let runs: unknown = el.runs;
+	if (el.type === "text" && runs !== undefined) {
+		if (!Array.isArray(runs)) {
+			runs = undefined;
+		} else {
+			runs = (runs as unknown[]).filter(
+				(r) =>
+					r &&
+					typeof r === "object" &&
+					typeof (r as Record<string, unknown>).text === "string",
+			);
+			if ((runs as unknown[]).length === 0) runs = undefined;
+		}
+	}
+
 	// Normalise optional fields
 	return {
 		...el,
@@ -55,6 +71,7 @@ function validateElement(raw: unknown): CanvasElement | null {
 		zIndex: typeof el.zIndex === "number" ? el.zIndex : 0,
 		isDeleted: false,
 		opacity: typeof el.opacity === "number" ? el.opacity : 100,
+		...(el.type === "text" && runs ? { runs } : {}),
 	} as CanvasElement;
 }
 
