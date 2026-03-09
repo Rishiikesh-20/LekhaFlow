@@ -339,6 +339,7 @@ export function createText(
 		lineHeight: options.lineHeight ?? 1.25,
 		containerId: options.containerId ?? null,
 		originalText: text,
+		runs: options.runs,
 	} as TextElement;
 }
 

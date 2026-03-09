@@ -269,16 +269,48 @@ export interface FreedrawElement extends ExcalidrawElementBase {
 }
 
 /**
+ * Inline text run — a contiguous range of text sharing the same formatting.
+ * The full text is reconstructed by concatenating all run `text` values in order.
+ */
+export interface TextRun {
+	/** The text content of this run */
+	text: string;
+	/** Font family name (e.g. "Arial", "Georgia") */
+	fontFamily?: string;
+	/** Font size in pixels */
+	fontSize?: number;
+	/** Bold flag */
+	bold?: boolean;
+	/** Italic flag */
+	italic?: boolean;
+	/** Underline flag */
+	underline?: boolean;
+}
+
+/**
+ * Active text style — tracks the current formatting state for the toolbar.
+ * When a user toggles bold/italic etc., these values are updated in the store
+ * and will be applied to newly typed text or selected ranges (Phase 2+).
+ */
+export interface ActiveTextStyle {
+	fontFamily: string;
+	fontSize: number;
+	bold: boolean;
+	italic: boolean;
+	underline: boolean;
+}
+
+/**
  * Text element
  * Editable text with font properties
  */
 export interface TextElement extends ExcalidrawElementBase {
 	type: "text";
-	/** Text content */
+	/** Text content (plain-text, kept in sync with runs for backward compat) */
 	text: string;
-	/** Font size in pixels */
+	/** Font size in pixels (default / box-level) */
 	fontSize: number;
-	/** Font family ID */
+	/** Font family ID (legacy, kept for backward compat) */
 	fontFamily: number;
 	/** Text alignment */
 	textAlign: "left" | "center" | "right";
@@ -290,6 +322,8 @@ export interface TextElement extends ExcalidrawElementBase {
 	containerId: string | null;
 	/** Original text before wrapping */
 	originalText: string;
+	/** Rich-text inline formatting runs (Phase 1 foundation — optional, backward compat) */
+	runs?: TextRun[];
 }
 
 /**
