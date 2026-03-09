@@ -2,6 +2,7 @@
 
 import type { User } from "@supabase/supabase-js";
 import {
+	Archive,
 	ArrowRight,
 	LogOut,
 	Plus,
@@ -30,7 +31,9 @@ export default function Home() {
 	const [user, setUser] = useState<User | null>(null);
 	const [authLoading, setAuthLoading] = useState(true);
 	const [creating, setCreating] = useState(false);
-	const [activeTab, setActiveTab] = useState<"canvases" | "trash">("canvases");
+	const [activeTab, setActiveTab] = useState<"canvases" | "trash" | "archived">(
+		"canvases",
+	);
 
 	// Listen for auth state
 	useEffect(() => {
@@ -341,6 +344,18 @@ export default function Home() {
 								</button>
 								<button
 									type="button"
+									onClick={() => setActiveTab("archived")}
+									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+										activeTab === "archived"
+											? "bg-white text-gray-900 shadow-sm"
+											: "text-gray-500 hover:text-gray-700"
+									}`}
+								>
+									<Archive size={14} />
+									Archived
+								</button>
+								<button
+									type="button"
 									onClick={() => setActiveTab("trash")}
 									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
 										activeTab === "trash"
@@ -353,7 +368,9 @@ export default function Home() {
 								</button>
 							</div>
 						</div>
-						{activeTab === "canvases" ? <FolderView /> : <TrashView />}
+						{activeTab === "canvases" && <FolderView />}
+						{activeTab === "archived" && <FolderView archivedOnly={true} />}
+						{activeTab === "trash" && <TrashView />}
 					</div>
 				</section>
 			)}

@@ -77,7 +77,9 @@ interface UseYjsSyncReturn {
 	updateSelection: (ids: string[]) => void;
 	updateEditingElement: (id: string | null) => void;
 	getYElements: () => Y.Map<CanvasElement>;
+	getYSettings: () => Y.Map<unknown>;
 	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
+	updateSettings: (updates: Record<string, unknown>) => void;
 	undo: () => void;
 	redo: () => void;
 	canUndo: boolean;
@@ -119,6 +121,8 @@ export function useYjsSync(
 		setRoomId,
 		setSavingStatus,
 		addActivityLogEntry,
+		setCanvasBackgroundColor,
+		setGridMode,
 		myName,
 		myColor,
 	} = useCanvasStore();
@@ -158,6 +162,10 @@ export function useYjsSync(
 
 	const getYElements = useCallback((): Y.Map<CanvasElement> => {
 		return doc.getMap<CanvasElement>("elements");
+	}, [doc]);
+
+	const getYSettings = useCallback((): Y.Map<unknown> => {
+		return doc.getMap<unknown>("settings");
 	}, [doc]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -245,6 +253,27 @@ export function useYjsSync(
 				setConnectionStatus(false, false);
 			},
 		});
+
+		const ySettings = getYSettings();
+
+		// Helper to read Y.Map settings and push to store
+		const syncSettingsToStore = () => {
+			const settings = ySettings.toJSON();
+			const currentState = useCanvasStore.getState();
+
+			if (
+				settings.backgroundColor &&
+				settings.backgroundColor !== currentState.canvasBackgroundColor
+			) {
+				setCanvasBackgroundColor(settings.backgroundColor as string);
+			}
+			if (
+				settings.gridMode &&
+				settings.gridMode !== currentState.activeGridMode
+			) {
+				setGridMode(settings.gridMode as "none" | "grid" | "dots");
+			}
+		};
 
 		providerRef.current = provider;
 		setRoomId(roomId);
@@ -365,6 +394,13 @@ export function useYjsSync(
 		yElements.observe(handleElementsChange);
 		// Initial load — call without event so no logs are generated
 		handleElementsChange();
+
+		const handleSettingsChange = () => {
+			syncSettingsToStore();
+		};
+		ySettings.observe(handleSettingsChange);
+		syncSettingsToStore();
+
 		// After initial hydration, allow future changes to be logged
 		hasSyncedRef.current = true;
 
@@ -435,6 +471,7 @@ export function useYjsSync(
 
 		return () => {
 			yElements.unobserve(handleElementsChange);
+			ySettings.unobserve(handleSettingsChange);
 			doc.off("update", handleDocUpdate);
 			provider.off("synced", handleProviderSynced);
 			provider.awareness?.off("change", handleAwarenessChange);
@@ -466,6 +503,9 @@ export function useYjsSync(
 		setSavingStatus,
 		addActivityLogEntry,
 		getYElements,
+		getYSettings,
+		setCanvasBackgroundColor,
+		setGridMode,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -629,6 +669,18 @@ export function useYjsSync(
 		[doc, getYElements],
 	);
 
+	const updateSettings = useCallback(
+		(updates: Record<string, unknown>) => {
+			const ySettings = getYSettings();
+			doc.transact(() => {
+				for (const [key, value] of Object.entries(updates)) {
+					ySettings.set(key, value);
+				}
+			});
+		},
+		[doc, getYSettings],
+	);
+
 	const undo = useCallback(() => {
 		undoManagerRef.current?.undo();
 	}, []);
@@ -653,7 +705,9 @@ export function useYjsSync(
 		updateSelection,
 		updateEditingElement,
 		getYElements,
+		getYSettings,
 		restoreVersion,
+		updateSettings,
 		undo,
 		redo,
 		canUndo,

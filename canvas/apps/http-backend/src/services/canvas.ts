@@ -114,6 +114,8 @@ export const updateCanvasService = async (
 	if (update.thumbnail_url !== undefined)
 		updateFields.thumbnail_url = update.thumbnail_url;
 
+	updateFields.updated_at = new Date().toISOString();
+
 	const { error } = await getClient()
 		.from("canvases")
 		.update(updateFields)
@@ -173,6 +175,7 @@ export interface SearchCanvasesOptions {
 	order?: "asc" | "desc";
 	page?: number;
 	limit?: number;
+	isArchived?: boolean;
 }
 
 export const searchCanvasesService = async (
@@ -190,6 +193,7 @@ export const searchCanvasesService = async (
 		order = "desc",
 		page = 1,
 		limit = 20,
+		isArchived = false,
 	} = options;
 
 	const ascending = order === "asc";
@@ -201,7 +205,8 @@ export const searchCanvasesService = async (
 			.from("canvases")
 			.select("*", { count: "exact", head: true })
 			.eq("owner_id", userId)
-			.eq("is_deleted", false);
+			.eq("is_deleted", false)
+			.eq("is_archived", isArchived);
 
 		const total = count ?? 0;
 		const from = (page - 1) * limit;
@@ -212,6 +217,7 @@ export const searchCanvasesService = async (
 			.select("*")
 			.eq("owner_id", userId)
 			.eq("is_deleted", false)
+			.eq("is_archived", isArchived)
 			.order(orderColumn, { ascending })
 			.range(from, to);
 
@@ -228,6 +234,7 @@ export const searchCanvasesService = async (
 		.select("*")
 		.eq("owner_id", userId)
 		.eq("is_deleted", false)
+		.eq("is_archived", isArchived)
 		.ilike("name", `%${q}%`);
 
 	if (nameError) {
@@ -260,6 +267,7 @@ export const searchCanvasesService = async (
 			.select("*")
 			.in("id", tagCanvasIds)
 			.eq("owner_id", userId)
+			.eq("is_archived", isArchived)
 			.eq("is_deleted", false);
 
 		tagCanvases = tagCanvasData || [];
@@ -298,6 +306,7 @@ export const getRecentCanvasesService = async (
 		.select("*")
 		.eq("owner_id", userId)
 		.eq("is_deleted", false)
+		.eq("is_archived", false)
 		.not("last_accessed_at", "is", null)
 		.order("last_accessed_at", { ascending: false })
 		.limit(limit);
@@ -325,5 +334,171 @@ export const touchCanvasAccessService = async (
 			"[touchCanvasAccess] Failed to update last_accessed_at:",
 			err,
 		);
+	}
+};
+
+export const uploadCanvasThumbnailService = async (
+	canvasId: string,
+	base64Data: string,
+	userId: string,
+): Promise<string> => {
+	// 1. Convert base64 to Buffer
+	const base64Content = base64Data.includes(",")
+		? base64Data.split(",")[1]
+		: base64Data;
+	if (!base64Content) {
+		throw new HttpError("Invalid image data", StatusCodes.BAD_REQUEST);
+	}
+	const buffer = Buffer.from(base64Content, "base64");
+
+	const filePath = `${userId}/${canvasId}.jpg`;
+	const client = createServiceClient(); // use factory directly for consistency
+
+	// 2. Upload to Supabase Storage
+	const { error: uploadError } = await client.storage
+		.from("thumbnails")
+		.upload(filePath, buffer, {
+			contentType: "image/jpeg",
+			upsert: true,
+		});
+
+	if (uploadError) {
+		// If bucket doesn't exist, try creating it
+		if (
+			uploadError.message.toLowerCase().includes("not found") ||
+			uploadError.message.toLowerCase().includes("does not exist")
+		) {
+			try {
+				await client.storage.createBucket("thumbnails", {
+					public: true,
+					allowedMimeTypes: ["image/jpeg", "image/png"],
+				});
+				// Retry upload
+				const { error: retryError } = await client.storage
+					.from("thumbnails")
+					.upload(filePath, buffer, {
+						contentType: "image/jpeg",
+						upsert: true,
+					});
+				if (retryError) {
+					throw new HttpError(
+						retryError.message,
+						StatusCodes.INTERNAL_SERVER_ERROR,
+					);
+				}
+			} catch (err) {
+				console.error("[uploadThumbnail] Bucket creation failed:", err);
+				throw new HttpError(
+					uploadError.message,
+					StatusCodes.INTERNAL_SERVER_ERROR,
+				);
+			}
+		} else {
+			throw new HttpError(
+				uploadError.message,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+	}
+
+	// 3. Get public URL
+	const {
+		data: { publicUrl },
+	} = client.storage.from("thumbnails").getPublicUrl(filePath);
+
+	// 4. Update canvases table
+	const { error: dbError } = await client
+		.from("canvases")
+		.update({
+			thumbnail_url: publicUrl,
+			updated_at: new Date().toISOString(),
+		})
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (dbError) {
+		throw new HttpError(dbError.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	return publicUrl;
+};
+
+export const duplicateCanvasService = async (
+	canvasId: string,
+	userId: string,
+): Promise<Tables<"canvases">> => {
+	const client = getClient();
+
+	// 1. Fetch original canvas
+	const { data: original, error: fetchError } = await client
+		.from("canvases")
+		.select("*")
+		.eq("id", canvasId)
+		.eq("owner_id", userId)
+		.single();
+
+	if (fetchError || !original) {
+		throw new HttpError(
+			fetchError?.message || "Canvas not found",
+			StatusCodes.NOT_FOUND,
+		);
+	}
+
+	// 2. Create new canvas with identical data but new name/id
+	const newName = original.name ? `Copy of ${original.name}` : "Untitled Copy";
+	const newSlug = generateSlug(newName);
+
+	const { data: copy, error: createError } = await client
+		.from("canvases")
+		.insert({
+			name: newName,
+			slug: newSlug,
+			owner_id: userId,
+			data: original.data, // Deep copy of elements
+			background_color: original.background_color,
+			thumbnail_url: original.thumbnail_url,
+			folder_id: original.folder_id,
+			is_public: original.is_public,
+		})
+		.select()
+		.single();
+
+	if (createError || !copy) {
+		throw new HttpError(
+			createError?.message || "Failed to create copy",
+			StatusCodes.INTERNAL_SERVER_ERROR,
+		);
+	}
+
+	// 3. Optional: Copy tags if they exist
+	const { data: originalTags } = await client
+		.from("tags_on_canvases")
+		.select("tag_id")
+		.eq("canvas_id", canvasId);
+
+	if (originalTags && originalTags.length > 0) {
+		const tagInserts = originalTags.map((t) => ({
+			canvas_id: copy.id,
+			tag_id: t.tag_id,
+		}));
+		await client.from("tags_on_canvases").insert(tagInserts);
+	}
+
+	return copy;
+};
+
+export const toggleArchiveCanvasService = async (
+	canvasId: string,
+	userId: string,
+	isArchived: boolean,
+): Promise<void> => {
+	const { error } = await getClient()
+		.from("canvases")
+		.update({ is_archived: isArchived })
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
 };

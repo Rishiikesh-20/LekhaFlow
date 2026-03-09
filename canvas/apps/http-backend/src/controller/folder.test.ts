@@ -156,7 +156,12 @@ describe("Folder API", () => {
 				data: mockCanvases,
 				error: null,
 			});
-			const canvasOrderMock = vi.fn().mockReturnValue({ is: canvasIsMock });
+			const canvasEqArchivedMock = vi.fn().mockReturnValue({
+				is: canvasIsMock,
+			});
+			const canvasOrderMock = vi.fn().mockReturnValue({
+				eq: canvasEqArchivedMock,
+			});
 			const canvasEqDeletedMock = vi
 				.fn()
 				.mockReturnValue({ order: canvasOrderMock });

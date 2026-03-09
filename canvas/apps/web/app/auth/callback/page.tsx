@@ -66,7 +66,7 @@ function AuthCallbackContent() {
 				}
 			}
 
-			const next = searchParams.get("next") ?? "/";
+			const next = searchParams?.get("next") ?? "/";
 			router.replace(next);
 		};
 
