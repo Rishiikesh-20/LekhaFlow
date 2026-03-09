@@ -353,32 +353,36 @@ export const getRecentCanvasesService = async (
 		throw new HttpError(ownedError.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
 
-	// 2. Get recently accessed shared canvases
-	const { data: accessLogs } = await getClient()
-		.from("activity_logs")
-		.select("canvas_id")
-		.eq("user_id", userId)
-		.eq("action", "accessed")
-		.order("created_at", { ascending: false });
-
-	const recentSharedIds = [
-		...new Set(
-			(accessLogs || [])
-				.map((log) => log.canvas_id)
-				.filter((id) => !(ownedData || []).some((c) => c.id === id)),
-		),
-	].slice(0, limit);
-
+	// 2. Get recently accessed shared canvases (non-critical — ignore failures)
 	let sharedData: Tables<"canvases">[] = [];
-	if (recentSharedIds.length > 0) {
-		const { data: shared } = await getClient()
-			.from("canvases")
-			.select("*")
-			.in("id", recentSharedIds)
-			.eq("is_deleted", false)
-			.not("last_accessed_at", "is", null);
+	try {
+		const { data: accessLogs } = await getClient()
+			.from("activity_logs")
+			.select("canvas_id")
+			.eq("user_id", userId)
+			.eq("action", "accessed")
+			.order("created_at", { ascending: false });
 
-		sharedData = shared || [];
+		const recentSharedIds = [
+			...new Set(
+				(accessLogs || [])
+					.map((log) => log.canvas_id)
+					.filter((id) => !(ownedData || []).some((c) => c.id === id)),
+			),
+		].slice(0, limit);
+
+		if (recentSharedIds.length > 0) {
+			const { data: shared } = await getClient()
+				.from("canvases")
+				.select("*")
+				.in("id", recentSharedIds)
+				.eq("is_deleted", false)
+				.not("last_accessed_at", "is", null);
+
+			sharedData = shared || [];
+		}
+	} catch {
+		// activity_logs query is non-critical; return only owned canvases
 	}
 
 	// 3. Merge, deduplicate (just in case), and sort globally
