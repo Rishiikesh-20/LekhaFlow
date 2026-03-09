@@ -1,4 +1,8 @@
-import { CreateCanvasSchema, UpdateCanvasSchema } from "@repo/common";
+import {
+	CreateCanvasSchema,
+	ToggleStarSchema,
+	UpdateCanvasSchema,
+} from "@repo/common";
 import { HttpError, JSONResponse } from "@repo/http-core";
 import type { Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
@@ -9,8 +13,10 @@ import {
 	getCanvasesService,
 	getCanvasService,
 	getRecentCanvasesService,
+	getStarredCanvasesService,
 	searchCanvasesService,
 	toggleArchiveCanvasService,
+	toggleStarService,
 	touchCanvasAccessService,
 	updateCanvasService,
 	uploadCanvasThumbnailService,
@@ -132,6 +138,7 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		100,
 		Math.max(1, parseInt(req.query.limit as string, 10) || 20),
 	);
+	const tagId = (req.query.tagId as string) || undefined;
 
 	// Validate sortBy
 	const sortBy: "createdAt" | "title" =
@@ -149,6 +156,7 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		page,
 		limit,
 		isArchived,
+		tagId,
 	});
 
 	return JSONResponse(
@@ -261,5 +269,48 @@ export const toggleArchiveCanvas = async (req: Request, res: Response) => {
 		res,
 		StatusCodes.OK,
 		`Canvas ${isArchived ? "archived" : "unarchived"} successfully`,
+	);
+};
+
+export const toggleStar = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const { roomId } = req.params;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+
+	const parsedData = ToggleStarSchema.safeParse(req.body);
+	if (!parsedData.success) {
+		throw new HttpError(
+			"Validation Failed: " +
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+			StatusCodes.BAD_REQUEST,
+		);
+	}
+
+	await toggleStarService(roomId, req.user.id, parsedData.data.isStarred);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		parsedData.data.isStarred ? "Canvas starred" : "Canvas unstarred",
+	);
+};
+
+export const getStarredCanvases = async (req: Request, res: Response) => {
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const canvases = await getStarredCanvasesService(req.user.id);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		"Starred canvases retrieved successfully",
+		{ canvases },
 	);
 };
