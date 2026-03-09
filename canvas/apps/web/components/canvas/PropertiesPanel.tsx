@@ -8,7 +8,14 @@
 
 "use client";
 
-import { ChevronDown, ChevronRight, Lock, Palette, X } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	Lock,
+	Palette,
+	Plus,
+	X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useCanvasStore, useSelectedElements } from "../../store/canvas-store";
 
@@ -60,10 +67,15 @@ const BRUSH_OPTIONS = [
 	},
 ];
 
-export function PropertiesPanel() {
+interface PropertiesPanelProps {
+	onUpdateSettings?: (updates: Record<string, unknown>) => void;
+}
+
+export function PropertiesPanel({ onUpdateSettings }: PropertiesPanelProps) {
 	const [isCollapsed, setIsCollapsed] = useState(true);
 	const [isBrushDropdownOpen, setIsBrushDropdownOpen] = useState(false);
 	const brushDropdownRef = useRef<HTMLDivElement>(null);
+	const customColorInputRef = useRef<HTMLInputElement>(null);
 	const {
 		currentStrokeColor,
 		currentBackgroundColor,
@@ -85,6 +97,10 @@ export function PropertiesPanel() {
 		isReadOnly,
 		currentFillStyle,
 		setFillStyle,
+		canvasBackgroundColor,
+		activeGridMode,
+		setCanvasBackgroundColor,
+		setGridMode,
 	} = useCanvasStore();
 
 	// Detect if any selected element is a freedraw so brush controls stay
@@ -463,6 +479,110 @@ export function PropertiesPanel() {
 						)}
 					</>
 				)}
+
+				<div className="h-px bg-gray-100 my-4" />
+
+				{/* ── Canvas Settings (Story 1.3.4) ────────────────── */}
+				<SectionLabel>Canvas Background</SectionLabel>
+				<div className="grid grid-cols-4 gap-2 mb-4">
+					{[
+						{ color: "#ffffff", name: "Light" },
+						{ color: "#f8f9fa", name: "Soft" },
+						{ color: "#252525", name: "Dark" },
+						{ color: "#121212", name: "Black" },
+					].map(({ color, name }) => (
+						<button
+							type="button"
+							key={color}
+							onClick={() => {
+								setCanvasBackgroundColor(color);
+								onUpdateSettings?.({ backgroundColor: color });
+							}}
+							title={name}
+							className={`w-full aspect-square rounded-lg cursor-pointer transition-all border-none ${
+								canvasBackgroundColor === color
+									? "ring-2 ring-violet-500 ring-offset-2 scale-95"
+									: "ring-1 ring-gray-200 hover:ring-gray-300 hover:scale-95"
+							}`}
+							style={{ backgroundColor: color }}
+						/>
+					))}
+					{/* Custom Color Button */}
+					<button
+						type="button"
+						onClick={() => customColorInputRef.current?.click()}
+						title="Custom Color"
+						className={`w-full aspect-square rounded-lg cursor-pointer transition-all border-none flex items-center justify-center relative ${
+							!["#ffffff", "#f8f9fa", "#252525", "#121212"].includes(
+								canvasBackgroundColor,
+							)
+								? "ring-2 ring-violet-500 ring-offset-2 scale-95"
+								: "ring-1 ring-gray-200 hover:ring-gray-300 hover:scale-95"
+						}`}
+						style={{
+							backgroundColor: ![
+								"#ffffff",
+								"#f8f9fa",
+								"#252525",
+								"#121212",
+							].includes(canvasBackgroundColor)
+								? canvasBackgroundColor
+								: "#ffffff",
+						}}
+					>
+						<Plus
+							size={16}
+							className={
+								!["#ffffff", "#f8f9fa", "#252525", "#121212"].includes(
+									canvasBackgroundColor,
+								)
+									? "text-white mix-blend-difference"
+									: "text-gray-400"
+							}
+						/>
+						<input
+							ref={customColorInputRef}
+							type="color"
+							className="sr-only"
+							value={canvasBackgroundColor}
+							onChange={(e) => {
+								setCanvasBackgroundColor(e.target.value);
+								onUpdateSettings?.({ backgroundColor: e.target.value });
+							}}
+						/>
+					</button>
+				</div>
+
+				<div className="flex items-center gap-2 mb-4">
+					<span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded uppercase flex-1 text-center border border-gray-100">
+						{canvasBackgroundColor}
+					</span>
+				</div>
+
+				<SectionLabel>Grid Mode</SectionLabel>
+				<div className="flex gap-2 mb-2">
+					{[
+						{ mode: "none", label: "None" },
+						{ mode: "dots", label: "Dots" },
+						{ mode: "grid", label: "Grid" },
+					].map(({ mode, label }) => (
+						<button
+							type="button"
+							key={mode}
+							onClick={() => {
+								setGridMode(mode as typeof activeGridMode);
+								onUpdateSettings?.({ gridMode: mode });
+							}}
+							className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center text-[11px] font-bold transition-all border-none ${
+								activeGridMode === mode
+									? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+									: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-500"
+							}`}
+						>
+							{label}
+						</button>
+					))}
+				</div>
 			</div>
 		</div>
 	);

@@ -9,6 +9,7 @@
 "use client";
 
 import {
+	Archive,
 	ArrowLeft,
 	Check,
 	Cloud,
@@ -50,6 +51,8 @@ interface SidebarMenuProps {
 	onExport?: (format: "png" | "svg" | "json") => void;
 	onImportJson?: () => void;
 	onExportDocumentation?: () => void;
+	isArchived?: boolean;
+	onToggleArchive?: () => void;
 }
 
 function SidebarMenu({
@@ -59,6 +62,8 @@ function SidebarMenu({
 	onExport,
 	onImportJson,
 	onExportDocumentation,
+	isArchived,
+	onToggleArchive,
 }: SidebarMenuProps) {
 	return (
 		<>
@@ -117,7 +122,29 @@ function SidebarMenu({
 								label="Open..."
 								shortcut="Ctrl+O"
 							/>
-							<MenuItem icon={<Save />} label="Save" shortcut="Ctrl+S" />
+							<MenuItem
+								icon={<Save />}
+								label="Save"
+								shortcut="Ctrl+S"
+								onClick={() => {
+									// Get elements from Zustand store
+									const elements = Array.from(
+										useCanvasStore.getState().elements.values(),
+									);
+									const dataStr = JSON.stringify(elements, null, 2);
+									const blob = new Blob([dataStr], {
+										type: "application/json",
+									});
+									const url = URL.createObjectURL(blob);
+									const a = document.createElement("a");
+									a.href = url;
+									a.download = `canvas-${new Date().toISOString()}.json`;
+									document.body.appendChild(a);
+									a.click();
+									document.body.removeChild(a);
+									URL.revokeObjectURL(url);
+								}}
+							/>
 						</div>
 					</div>
 
@@ -186,6 +213,14 @@ function SidebarMenu({
 							Canvas
 						</p>
 						<div className="flex flex-col gap-1">
+							<MenuItem
+								icon={<Archive />}
+								label={isArchived ? "Unarchive Canvas" : "Archive Canvas"}
+								onClick={() => {
+									onToggleArchive?.();
+									onClose();
+								}}
+							/>
 							<MenuItem
 								icon={<Trash2 />}
 								label="Clear Canvas"
@@ -503,6 +538,8 @@ export function HeaderLeft({
 	const [saving, setSaving] = useState(false);
 	const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
+	const { isArchived, setIsArchived, setReadOnly } = useCanvasStore();
+
 	const HTTP_URL =
 		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
@@ -553,12 +590,16 @@ export function HeaderLeft({
 					const canvas = json?.data?.canvas || json?.canvas;
 					setCanvasName(canvas?.name || "");
 					setUpdatedAt(canvas?.updated_at || null);
+					setIsArchived(!!canvas?.is_archived);
+					if (canvas?.is_archived) {
+						setReadOnly(true);
+					}
 				}
 			} catch {}
 			setLoading(false);
 		}
 		init();
-	}, [HTTP_URL]);
+	}, [HTTP_URL, setIsArchived, setReadOnly]);
 
 	const handleBlur = async () => {
 		if (!roomId || !canvasName) return;
@@ -591,7 +632,6 @@ export function HeaderLeft({
 	const router = useRouter();
 
 	// Hydrate isReadOnly from localStorage when roomId is known
-	const setReadOnly = useCanvasStore((state) => state.setReadOnly);
 	useEffect(() => {
 		if (!roomId) return;
 		try {
@@ -602,6 +642,32 @@ export function HeaderLeft({
 			}
 		} catch {}
 	}, [roomId, setReadOnly]);
+
+	const handleToggleArchive = async () => {
+		if (!roomId) return;
+		const {
+			data: { session },
+		} = await supabase.auth.getSession();
+		if (!session) return;
+
+		try {
+			const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/archive`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${session.access_token}`,
+				},
+				body: JSON.stringify({ isArchived: !isArchived }),
+			});
+			if (res.ok) {
+				setIsArchived(!isArchived);
+				if (!isArchived) setReadOnly(true);
+				else setReadOnly(false);
+			}
+		} catch (err) {
+			console.error("Failed to toggle archive:", err);
+		}
+	};
 
 	return (
 		<>
@@ -682,6 +748,8 @@ export function HeaderLeft({
 				onExport={onExport}
 				onImportJson={onImportJson}
 				onExportDocumentation={onExportDocumentation}
+				isArchived={isArchived}
+				onToggleArchive={handleToggleArchive}
 			/>
 		</>
 	);

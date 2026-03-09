@@ -5,12 +5,15 @@ import { StatusCodes } from "http-status-codes";
 import {
 	createCanvasService,
 	deleteCanvasService,
+	duplicateCanvasService,
 	getCanvasesService,
 	getCanvasService,
 	getRecentCanvasesService,
 	searchCanvasesService,
+	toggleArchiveCanvasService,
 	touchCanvasAccessService,
 	updateCanvasService,
+	uploadCanvasThumbnailService,
 } from "../services/canvas.js";
 
 export const createCanvas = async (req: Request, res: Response) => {
@@ -137,12 +140,15 @@ export const searchCanvases = async (req: Request, res: Response) => {
 	// Validate order
 	const order: "asc" | "desc" = orderParam === "asc" ? "asc" : "desc";
 
+	const isArchived = req.query.isArchived === "true";
+
 	const result = await searchCanvasesService(req.user.id, {
 		q,
 		sortBy,
 		order,
 		page,
 		limit,
+		isArchived,
 	});
 
 	return JSONResponse(
@@ -184,4 +190,76 @@ export const touchCanvasAccess = async (req: Request, res: Response) => {
 	touchCanvasAccessService(roomId, req.user.id);
 
 	res.status(StatusCodes.NO_CONTENT).end();
+};
+
+export const updateThumbnail = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const { thumbnail_url } = req.body;
+	if (!thumbnail_url) {
+		throw new HttpError("thumbnail_url is required", StatusCodes.BAD_REQUEST);
+	}
+
+	const publicUrl = await uploadCanvasThumbnailService(
+		roomId,
+		thumbnail_url,
+		req.user.id,
+	);
+
+	return JSONResponse(res, StatusCodes.OK, "Thumbnail uploaded successfully", {
+		thumbnail_url: publicUrl,
+	});
+};
+
+export const duplicateCanvas = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const copy = await duplicateCanvasService(roomId, req.user.id);
+
+	return JSONResponse(
+		res,
+		StatusCodes.CREATED,
+		"Canvas duplicated successfully",
+		{
+			canvas: copy,
+		},
+	);
+};
+
+export const toggleArchiveCanvas = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const { isArchived } = req.body;
+	if (typeof isArchived !== "boolean") {
+		throw new HttpError(
+			"isArchived (boolean) is required",
+			StatusCodes.BAD_REQUEST,
+		);
+	}
+
+	await toggleArchiveCanvasService(roomId, req.user.id, isArchived);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		`Canvas ${isArchived ? "archived" : "unarchived"} successfully`,
+	);
 };

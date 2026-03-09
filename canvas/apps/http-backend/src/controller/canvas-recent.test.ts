@@ -92,7 +92,8 @@ describe("GET /api/v1/canvas/recent", () => {
 			const notMock = vi.fn().mockReturnValue({
 				order: orderMock,
 			});
-			const eqDeletedMock = vi.fn().mockReturnValue({ not: notMock });
+			const eqArchivedMock = vi.fn().mockReturnValue({ not: notMock });
+			const eqDeletedMock = vi.fn().mockReturnValue({ eq: eqArchivedMock });
 			const eqOwnerMock = vi.fn().mockReturnValue({ eq: eqDeletedMock });
 			const selectMock = vi.fn().mockReturnValue({ eq: eqOwnerMock });
 			const fromMock = vi.fn().mockReturnValue({ select: selectMock });

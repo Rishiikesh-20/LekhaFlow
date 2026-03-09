@@ -1,0 +1,795 @@
+﻿node.exe : apps\web\components
+\FolderView.tsx:1110:11 
+lint/performance/noImgElement 
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+At C:\Users\krjee\AppData\Roam
+ing\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/
+node_modules/pnpm/bin/pnpm.cjs
+" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo          : 
+    NotSpecified: (apps\web\  
+  compon...ΓöüΓöüΓöüΓöüΓöü:   
+ String) [], RemoteExcepti    
+on
+    + FullyQualifiedErrorId : 
+    NativeCommandError
+ 
+
+  ! Don't use <img> element.
+  
+    1108 Γöé 								<div 
+className="h-10 w-14 
+bg-gray-50 rounded-lg 
+flex-shrink-0 flex 
+items-center justify-center 
+overflow-hidden border 
+border-gray-200">
+    1109 Γöé 									
+{canvas.thumbnail_url ? (
+  > 1110 Γöé 										<img
+         Γöé 										^^^^
+  > 1111 Γöé 											
+src={canvas.thumbnail_url}
+  > 1112 Γöé 											
+alt={canvas.name}
+  > 1113 Γöé 											
+className="w-full h-full 
+object-cover"
+  > 1114 Γöé 										/>
+         Γöé 										^^
+    1115 Γöé 									) : (
+    1116 Γöé 										<File 
+size={18} 
+className="text-violet-500" />
+  
+  i Using the <img> can lead 
+to slower LCP and higher 
+bandwidth. Consider using 
+<Image /> from next/image to 
+automatically optimize images.
+  
+
+apps\web\components\FolderView
+.tsx:18:2 lint/correctness/noU
+nusedImports  FIXABLE  ΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöü
+
+  ! Several of these imports 
+are unused.
+  
+    16 Γöé 	Plus,
+    17 Γöé 	Search,
+  > 18 Γöé 	Share2,
+       Γöé 	^^^^^^
+    19 Γöé 	Trash2,
+    20 Γöé 	X,
+  
+  i Unused imports might be 
+the result of an incomplete 
+refactoring.
+  
+  i Unsafe fix: Remove the 
+unused imports.
+  
+      16   16 Γöé   	Plus,
+      17   17 Γöé   	Search,
+      18      Γöé - ΓåÆ 
+Share2,
+      19   18 Γöé   	Trash2,
+      20   19 Γöé   	X,
+  
+
+apps\web\components\Canvas.tsx
+:1510:2 lint/correctness/useEx
+haustiveDependencies  FIXABLE 
+ 
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+
+  ├ù This hook specifies more 
+dependencies than necessary: 
+elements.
+  
+    1508 Γöé 		process.env.NEX
+T_PUBLIC_HTTP_URL || "https://
+lekhaflow.rishiikesh.me";
+    1509 Γöé 
+  > 1510 Γöé 	useEffect(() => 
+{
+         Γöé 	^^^^^^^^^
+    1511 Γöé 		// Clear 
+previous timer on every 
+element change
+    1512 Γöé 		if 
+(thumbnailTimerRef.current) {
+  
+  i This dependency can be 
+removed from the list.
+  
+    1562 Γöé 		};
+    1563 Γöé 		// 
+eslint-disable-next-line 
+react-hooks/exhaustive-deps
+  > 1564 Γöé 	}, [roomId, 
+HTTP_URL, elements, 
+canvasBackgroundColor]);
+         Γöé 	                
+      ^^^^^^^^
+    1565 Γöé 
+    1566 Γöé 	// Reconnect 
+function
+  
+  i React relies on hook 
+dependencies to determine 
+when to re-compute Effects.
+    Specifying more 
+dependencies than required 
+can lead to unnecessary 
+re-rendering
+    and degraded performance.
+  
+  i Unsafe fix: Remove the 
+extra dependencies from the 
+list.
+  
+    1564 Γöé ΓåÆ },┬╖[roomId,┬
+╖HTTP_URL,┬╖elements,┬╖canvasB
+ackgroundColor]);
+         Γöé                  
+       ----------             
+           
+
+apps\web\components\Canvas.tsx
+:4309:7 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    4307 Γöé 						
+<LucideArchive size={16} />
+    4308 Γöé 						<span>This 
+canvas is archived and is in 
+read-only mode</span>
+  > 4309 Γöé 						<button
+         Γöé 						^^^^^^^
+  > 4310 Γöé 							
+onClick={() => 
+router.push("/")}
+  > 4311 Γöé 							
+className="ml-2 text-xs 
+bg-orange-200 
+hover:bg-orange-300 px-2 
+py-0.5 rounded 
+transition-colors"
+  > 4312 Γöé 						>
+         Γöé 						^
+    4313 Γöé 							Back to 
+Dashboard
+    4314 Γöé 						</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:834:9 lint/a11y/useKeyWit
+hClickEvents ΓöüΓöüΓöüΓöüΓöüΓö
+üΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓö
+üΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓö
+üΓöü
+
+  ├ù Enforce to have the 
+onClick mouse event with the 
+onKeyUp, the onKeyDown, or 
+the onKeyPress keyboard event.
+  
+    832 Γöé 						<div 
+className="bg-white border 
+border-gray-200 rounded-xl 
+overflow-hidden divide-y 
+divide-gray-100">
+    833 Γöé 							
+{searchResults.map((canvas) 
+=> (
+  > 834 Γöé 								<div
+        Γöé 								^^^^
+  > 835 Γöé 									
+key={canvas.id}
+         ...
+  > 839 Γöé 									
+className="flex items-center 
+justify-between p-4 
+hover:bg-violet-50/50 
+cursor-pointer group 
+transition-colors"
+  > 840 Γöé 								>
+        Γöé 								^
+    841 Γöé 									<div 
+className="flex items-center 
+gap-4 min-w-0">
+    842 Γöé 										<div 
+className="h-10 w-14 
+bg-gray-50 rounded-lg 
+flex-shrink-0 flex 
+items-center justify-center 
+overflow-hidden border 
+border-gray-200">
+  
+  i Actions triggered using 
+mouse events should have 
+corresponding keyboard events 
+to account for keyboard-only 
+navigation.
+  
+
+apps\web\components\FolderView
+.tsx:917:10 lint/a11y/useKeyWi
+thClickEvents ΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öü
+
+  ├ù Enforce to have the 
+onClick mouse event with the 
+onKeyUp, the onKeyDown, or 
+the onKeyPress keyboard event.
+  
+    915 Γöé 							<div 
+className="grid grid-cols-2 
+md:grid-cols-3 lg:grid-cols-4 
+gap-4">
+    916 Γöé 								
+{folders.map((folder) => (
+  > 917 Γöé 									<div
+        Γöé 									^^^^
+  > 918 Γöé 										
+key={folder.id}
+         ...
+  > 929 Γöé 										
+className={`group relative 
+flex items-center gap-3 p-4 
+bg-white border rounded-xl 
+cursor-pointer transition-all 
+${dragOverFolderId === 
+folder.id ? 
+"border-violet-400 
+bg-violet-50 scale-[1.02]" : 
+"border-gray-200 
+hover:border-violet-300 
+hover:shadow-md"}`}
+  > 930 Γöé 									>
+        Γöé 									^
+    931 Γöé 										<div
+    932 Γöé 											
+className={`w-10 h-10 
+rounded-xl flex items-center 
+justify-center flex-shrink-0 
+transition-colors 
+${dragOverFolderId === 
+folder.id ? "bg-violet-200" : 
+"bg-amber-50 
+group-hover:bg-amber-100"}`}
+  
+  i Actions triggered using 
+mouse events should have 
+corresponding keyboard events 
+to account for keyboard-only 
+navigation.
+  
+
+apps\web\components\FolderView
+.tsx:1048:7 lint/a11y/useKeyWi
+thClickEvents ΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öü
+
+  ├ù Enforce to have the 
+onClick mouse event with the 
+onKeyUp, the onKeyDown, or 
+the onKeyPress keyboard event.
+  
+    1046 Γöé 				<div 
+className="bg-white border 
+border-gray-200 rounded-xl 
+overflow-hidden divide-y 
+divide-gray-100">
+    1047 Γöé 					
+{folders.map((folder) => (
+  > 1048 Γöé 						<div
+         Γöé 						^^^^
+  > 1049 Γöé 							
+key={folder.id}
+          ...
+  > 1060 Γöé 							
+className={`flex items-center 
+justify-between p-4 
+cursor-pointer group 
+transition-all 
+${dragOverFolderId === 
+folder.id ? "bg-violet-50 
+border-l-2 border-violet-400" 
+: "hover:bg-violet-50/50"}`}
+  > 1061 Γöé 						>
+         Γöé 						^
+    1062 Γöé 							<div 
+className="flex items-center 
+gap-4 min-w-0">
+    1063 Γöé 								<div
+  
+  i Actions triggered using 
+mouse events should have 
+corresponding keyboard events 
+to account for keyboard-only 
+navigation.
+  
+
+apps\web\components\FolderView
+.tsx:1098:7 lint/a11y/useKeyWi
+thClickEvents ΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öü
+
+  ├ù Enforce to have the 
+onClick mouse event with the 
+onKeyUp, the onKeyDown, or 
+the onKeyPress keyboard event.
+  
+    1097 Γöé 					
+{canvases.map((canvas) => (
+  > 1098 Γöé 						<div
+         Γöé 						^^^^
+  > 1099 Γöé 							
+key={canvas.id}
+          ...
+  > 1105 Γöé 							
+className="flex items-center 
+justify-between p-4 
+hover:bg-violet-50/50 
+cursor-pointer group 
+transition-colors"
+  > 1106 Γöé 						>
+         Γöé 						^
+    1107 Γöé 							<div 
+className="flex items-center 
+gap-4 min-w-0">
+    1108 Γöé 								<div 
+className="h-10 w-14 
+bg-gray-50 rounded-lg 
+flex-shrink-0 flex 
+items-center justify-center 
+overflow-hidden border 
+border-gray-200">
+  
+  i Actions triggered using 
+mouse events should have 
+corresponding keyboard events 
+to account for keyboard-only 
+navigation.
+  
+
+apps\web\components\FolderView
+.tsx:802:13 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    800 Γöé 										
+{(!currentUserId || 
+canvas.owner_id === 
+currentUserId) && (
+    801 Γöé 											<div 
+className="flex items-center 
+gap-1 opacity-0 
+group-hover:opacity-100 
+transition-all">
+  > 802 Γöé 												
+<button
+        Γöé 												
+^^^^^^^
+  > 803 Γöé 													
+onClick={(e) => 
+handleDuplicate(canvas, e)}
+  > 804 Γöé 													
+className="p-1.5 
+text-gray-400 
+hover:text-violet-600"
+  > 805 Γöé 													
+title="Duplicate"
+  > 806 Γöé 												>
+        Γöé 												^
+    807 Γöé 													
+<Copy size={14} />
+    808 Γöé 												
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:809:13 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    807 Γöé 													
+<Copy size={14} />
+    808 Γöé 												
+</button>
+  > 809 Γöé 												
+<button
+        Γöé 												
+^^^^^^^
+  > 810 Γöé 													
+onClick={(e) =>
+         ...
+  > 814 Γöé 													
+title={canvas.is_archived ? 
+"Unarchive" : "Archive"}
+  > 815 Γöé 												>
+        Γöé 												^
+    816 Γöé 													
+<Archive size={14} />
+    817 Γöé 												
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:818:13 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    816 Γöé 													
+<Archive size={14} />
+    817 Γöé 												
+</button>
+  > 818 Γöé 												
+<button
+        Γöé 												
+^^^^^^^
+  > 819 Γöé 													
+onClick={(e) => 
+handleDeleteCanvas(canvas.id, 
+e)}
+  > 820 Γöé 													
+className="p-1.5 
+text-gray-400 
+hover:text-red-500"
+  > 821 Γöé 													
+title="Delete"
+  > 822 Γöé 												>
+        Γöé 												^
+    823 Γöé 													
+<Trash2 size={14} />
+    824 Γöé 												
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:949:12 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    947 Γöé 										</div>
+    948 Γöé 										
+{(!currentUserId || 
+folder.owner_id === 
+currentUserId) && (
+  > 949 Γöé 											<button
+        Γöé 											^^^^^^^
+  > 950 Γöé 												
+onClick={(e) => 
+handleDeleteFolder(folder.id, 
+e)}
+  > 951 Γöé 												
+className="p-1.5 
+text-gray-400 
+hover:text-red-500 opacity-0 
+group-hover:opacity-100 
+transition-all"
+  > 952 Γöé 											>
+        Γöé 											^
+    953 Γöé 												
+<Trash2 size={14} />
+    954 Γöé 											
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:1011:14 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+Γöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    1009 Γöé 												
+canvas.owner_id === 
+currentUserId) && (
+    1010 Γöé 												<div 
+className="flex items-center 
+gap-1 opacity-0 
+group-hover:opacity-100 
+transition-all">
+  > 1011 Γöé 													
+<button
+         Γöé 													
+^^^^^^^
+  > 1012 Γöé 														
+onClick={(e) => 
+handleDuplicate(canvas, e)}
+  > 1013 Γöé 														
+className="p-1.5 
+text-gray-400 
+hover:text-violet-600"
+  > 1014 Γöé 														
+title="Duplicate"
+  > 1015 Γöé 													>
+         Γöé 													^
+    1016 Γöé 														
+<Copy size={14} />
+    1017 Γöé 													
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:1018:14 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+Γöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    1016 Γöé 														
+<Copy size={14} />
+    1017 Γöé 													
+</button>
+  > 1018 Γöé 													
+<button
+         Γöé 													
+^^^^^^^
+  > 1019 Γöé 														
+onClick={(e) =>
+          ...
+  > 1023 Γöé 														
+title={canvas.is_archived ? 
+"Unarchive" : "Archive"}
+  > 1024 Γöé 													>
+         Γöé 													^
+    1025 Γöé 														
+<Archive size={14} />
+    1026 Γöé 													
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:1027:14 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+Γöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    1025 Γöé 														
+<Archive size={14} />
+    1026 Γöé 													
+</button>
+  > 1027 Γöé 													
+<button
+         Γöé 													
+^^^^^^^
+  > 1028 Γöé 														
+onClick={(e) => 
+handleDeleteCanvas(canvas.id, 
+e)}
+  > 1029 Γöé 														
+className="p-1.5 
+text-gray-400 
+hover:text-red-500"
+  > 1030 Γöé 														
+title="Delete"
+  > 1031 Γöé 													>
+         Γöé 													^
+    1032 Γöé 														
+<Trash2 size={14} />
+    1033 Γöé 													
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+apps\web\components\FolderView
+.tsx:1086:10 
+lint/a11y/useButtonType ΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+Γöü
+
+  ├ù Provide an explicit type 
+prop for the button element.
+  
+    1084 Γöé 								</Button>
+    1085 Γöé 								
+{(!currentUserId || 
+folder.owner_id === 
+currentUserId) && (
+  > 1086 Γöé 									<button
+         Γöé 									^^^^^^^
+  > 1087 Γöé 										
+onClick={(e) => 
+handleDeleteFolder(folder.id, 
+e)}
+  > 1088 Γöé 										
+className="p-2 text-gray-400 
+hover:text-red-500"
+  > 1089 Γöé 									>
+         Γöé 									^
+Checked 188 files in 386ms. No fixes applied.
+Found 14 errors.
+Found 2 warnings.
+    1090 Γöé 										
+<Trash2 size={14} />
+    1091 Γöé 									
+</button>
+  
+  i The default type of a 
+button is submit, which 
+causes the submission of a 
+form when placed inside a 
+`form` element. This is 
+likely not the behaviour that 
+you want inside a React 
+application.
+  
+  i Allowed button types are: 
+submit, button or reset
+  
+
+check ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöü
+
+  ├ù Some errors were emitted 
+while running checks.
+  
+

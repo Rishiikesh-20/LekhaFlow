@@ -50,11 +50,13 @@ export const getFolderContents = async (req: Request, res: Response) => {
 	const folderId = (req.query.folderId as string) || null;
 	const sortBy = (req.query.sortBy as string) || undefined;
 	const order = (req.query.order as string) || undefined;
+	const isArchived = req.query.isArchived === "true";
 	const contents = await getFolderContentsService(
 		req.user.id,
 		folderId,
 		sortBy,
 		order,
+		isArchived,
 	);
 
 	return JSONResponse(
