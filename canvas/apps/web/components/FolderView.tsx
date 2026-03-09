@@ -1,9 +1,11 @@
 "use client";
 
 import {
+	Archive,
 	ArrowUpDown,
 	ChevronRight,
 	Clock,
+	Copy,
 	File,
 	Folder,
 	FolderOpen,
@@ -13,10 +15,10 @@ import {
 	List,
 	Plus,
 	Search,
-	Share2,
 	Trash2,
 	X,
 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase.client";
@@ -41,6 +43,7 @@ interface CanvasItem {
 	thumbnail_url: string | null;
 	owner_id: string;
 	folder_id: string | null;
+	is_archived?: boolean;
 }
 
 interface BreadcrumbItem {
@@ -48,7 +51,11 @@ interface BreadcrumbItem {
 	name: string;
 }
 
-export function FolderView() {
+export function FolderView({
+	archivedOnly = false,
+}: {
+	archivedOnly?: boolean;
+}) {
 	const [folders, setFolders] = useState<FolderItem[]>([]);
 	const [canvases, setCanvases] = useState<CanvasItem[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -99,6 +106,7 @@ export function FolderView() {
 			if (currentFolderId) params.set("folderId", currentFolderId);
 			if (sortBy) params.set("sortBy", sortBy);
 			if (sortOrder) params.set("order", sortOrder);
+			params.set("isArchived", archivedOnly ? "true" : "false");
 
 			const url = `${HTTP_URL}/api/v1/folder/contents?${params.toString()}`;
 
@@ -114,7 +122,7 @@ export function FolderView() {
 		} finally {
 			setLoading(false);
 		}
-	}, [currentFolderId, sortBy, sortOrder, getAuthHeaders]);
+	}, [currentFolderId, sortBy, sortOrder, getAuthHeaders, archivedOnly]);
 
 	const fetchBreadcrumb = useCallback(async () => {
 		if (!currentFolderId) {
@@ -148,7 +156,6 @@ export function FolderView() {
 		}
 	}, [fetchContents, fetchBreadcrumb, isSearchMode]);
 
-	// Fetch recently accessed canvases (cached in local state)
 	useEffect(() => {
 		const fetchRecent = async () => {
 			const headers = await getAuthHeaders();
@@ -171,7 +178,6 @@ export function FolderView() {
 		fetchRecent();
 	}, [getAuthHeaders]);
 
-	// Debounced search effect (300ms)
 	useEffect(() => {
 		if (!searchQuery.trim()) {
 			setIsSearchMode(false);
@@ -195,6 +201,7 @@ export function FolderView() {
 					q: searchQuery.trim(),
 					sortBy,
 					order: sortOrder,
+					isArchived: archivedOnly ? "true" : "false",
 				});
 				const res = await fetch(
 					`${HTTP_URL}/api/v1/canvas/search?${params.toString()}`,
@@ -214,7 +221,7 @@ export function FolderView() {
 		}, 300);
 
 		return () => clearTimeout(timer);
-	}, [searchQuery, sortBy, sortOrder, getAuthHeaders]);
+	}, [searchQuery, sortBy, sortOrder, getAuthHeaders, archivedOnly]);
 
 	const handleSortChange = (value: string) => {
 		switch (value) {
@@ -301,8 +308,85 @@ export function FolderView() {
 				headers,
 			});
 			setCanvases((prev) => prev.filter((c) => c.id !== id));
+			setSearchResults((prev) => prev.filter((c) => c.id !== id));
 		} catch (e) {
 			console.error("Error deleting canvas:", e);
+		}
+	};
+
+	const handleArchive = async (
+		id: string,
+		isArchived: boolean,
+		e: React.MouseEvent,
+	) => {
+		e.stopPropagation();
+		const headers = await getAuthHeaders();
+		if (!headers) return;
+
+		try {
+			await fetch(`${HTTP_URL}/api/v1/canvas/${id}/archive`, {
+				method: "PATCH",
+				headers,
+				body: JSON.stringify({ isArchived: !isArchived }),
+			});
+			setCanvases((prev) => prev.filter((c) => c.id !== id));
+			setSearchResults((prev) => prev.filter((c) => c.id !== id));
+		} catch (e) {
+			console.error(e);
+		}
+	};
+
+	const handleDuplicate = async (canvas: CanvasItem, e: React.MouseEvent) => {
+		e.stopPropagation();
+		const headers = await getAuthHeaders();
+		if (!headers) return;
+
+		const tempId = `temp-${Date.now()}`;
+		const tempCanvas = {
+			...canvas,
+			id: tempId,
+			name: canvas.name ? `Copy of ${canvas.name}` : "Untitled Copy",
+		};
+
+		setCanvases((prev) => [tempCanvas, ...prev]);
+		if (isSearchMode) {
+			setSearchResults((prev) => [tempCanvas, ...prev]);
+		}
+
+		try {
+			const res = await fetch(
+				`${HTTP_URL}/api/v1/canvas/${canvas.id}/duplicate`,
+				{
+					method: "POST",
+					headers,
+				},
+			);
+			if (res.ok) {
+				const json = await res.json();
+				const duplicatedCanvas = json.data?.canvas || json.canvas;
+
+				if (duplicatedCanvas) {
+					// Replace temp item with real item in both states
+					const updateState = (prev: CanvasItem[]) =>
+						prev.map((c) => (c.id === tempId ? duplicatedCanvas : c));
+
+					setCanvases(updateState);
+					if (isSearchMode) {
+						setSearchResults(updateState);
+					}
+				}
+			} else {
+				const revertState = (prev: CanvasItem[]) =>
+					prev.filter((c) => c.id !== tempId);
+				setCanvases(revertState);
+				if (isSearchMode) setSearchResults(revertState);
+			}
+		} catch (e) {
+			console.error(e);
+			const revertState = (prev: CanvasItem[]) =>
+				prev.filter((c) => c.id !== tempId);
+			setCanvases(revertState);
+			if (isSearchMode) setSearchResults(revertState);
 		}
 	};
 
@@ -336,7 +420,6 @@ export function FolderView() {
 		}
 	};
 
-	// Drag and drop handlers
 	const handleDragStart = (
 		e: React.DragEvent,
 		itemId: string,
@@ -361,14 +444,11 @@ export function FolderView() {
 		e.stopPropagation();
 		setDragOverFolderId(null);
 
-		// Prevent the click event that fires after drop from navigating
 		justDroppedRef.current = true;
 		setTimeout(() => {
 			justDroppedRef.current = false;
 		}, 300);
 
-		// Read drag data SYNCHRONOUSLY before any await — browsers clear
-		// dataTransfer after the event handler yields.
 		const rawData = e.dataTransfer.getData("text/plain");
 		if (!rawData) return;
 
@@ -379,7 +459,6 @@ export function FolderView() {
 			itemId = parsed.itemId;
 			itemType = parsed.itemType;
 		} catch {
-			console.error("Invalid drag data:", rawData);
 			return;
 		}
 
@@ -406,7 +485,6 @@ export function FolderView() {
 					return;
 				}
 			}
-
 			fetchContents();
 		} catch (e) {
 			console.error("Error processing drop:", e);
@@ -438,7 +516,6 @@ export function FolderView() {
 
 	return (
 		<div className="space-y-4">
-			{/* Jump Back In — Recent Canvases */}
 			{!isSearchMode &&
 				currentFolderId === null &&
 				recentCanvases.length > 0 && (
@@ -464,18 +541,19 @@ export function FolderView() {
 									}}
 									className="group flex-shrink-0 w-48 bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
 								>
-									{/* Compact Thumbnail */}
 									<div className="aspect-[16/9] bg-gray-50 relative overflow-hidden">
 										{canvas.thumbnail_url ? (
-											/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-											<img
-												src={canvas.thumbnail_url}
+											<Image
+												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
+												unoptimized
 												alt={canvas.name || "Canvas preview"}
 												className="w-full h-full object-cover"
 												loading="lazy"
+												width={320}
+												height={180}
 											/>
 										) : (
-											<>
+											<div>
 												<div
 													className="absolute inset-0 opacity-[0.4]"
 													style={{
@@ -487,11 +565,10 @@ export function FolderView() {
 												<div className="w-full h-full flex items-center justify-center">
 													<File className="w-6 h-6 text-gray-300" />
 												</div>
-											</>
+											</div>
 										)}
 										<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
 									</div>
-									{/* Info */}
 									<div className="p-2.5">
 										<h4 className="font-medium text-xs text-gray-900 truncate">
 											{canvas.name || "Untitled"}
@@ -506,7 +583,6 @@ export function FolderView() {
 					</div>
 				)}
 
-			{/* Breadcrumb */}
 			<nav className="flex items-center gap-1 text-sm flex-wrap">
 				<button
 					type="button"
@@ -538,7 +614,6 @@ export function FolderView() {
 				))}
 			</nav>
 
-			{/* Search Bar & Sort Dropdown */}
 			<div className="flex items-center gap-3">
 				<div className="relative flex-1 max-w-md">
 					<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -547,8 +622,8 @@ export function FolderView() {
 						type="text"
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
-						placeholder="Search canvases by title or tag..."
-						className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 transition-all placeholder:text-gray-400"
+						placeholder="Search canvases by title..."
+						className="w-full pl-9 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-400"
 					/>
 					{searchQuery && (
 						<button
@@ -557,7 +632,7 @@ export function FolderView() {
 								setSearchQuery("");
 								setIsSearchMode(false);
 							}}
-							className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 transition-colors"
+							className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400"
 						>
 							<X size={14} />
 						</button>
@@ -569,7 +644,7 @@ export function FolderView() {
 						id="canvas-sort-select"
 						value={currentSortValue}
 						onChange={(e) => handleSortChange(e.target.value)}
-						className="appearance-none pl-8 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 outline-none focus:ring-2 focus:ring-violet-400 focus:border-violet-400 cursor-pointer transition-all"
+						className="appearance-none pl-8 pr-8 py-2 bg-white border border-gray-200 rounded-lg text-sm"
 					>
 						<option value="newest">Newest First</option>
 						<option value="oldest">Oldest First</option>
@@ -578,7 +653,6 @@ export function FolderView() {
 				</div>
 			</div>
 
-			{/* Toolbar */}
 			<div className="flex items-center justify-between gap-3">
 				<div className="flex items-center gap-2">
 					<Button
@@ -598,31 +672,22 @@ export function FolderView() {
 					<button
 						type="button"
 						onClick={() => setViewMode("grid")}
-						className={`p-2 rounded-md transition-colors ${
-							viewMode === "grid"
-								? "bg-white text-violet-600 shadow-sm"
-								: "text-gray-500 hover:text-gray-700"
-						}`}
+						className={`p-2 rounded-md ${viewMode === "grid" ? "bg-white text-violet-600 shadow-sm" : "text-gray-500"}`}
 					>
 						<Grid size={16} />
 					</button>
 					<button
 						type="button"
 						onClick={() => setViewMode("list")}
-						className={`p-2 rounded-md transition-colors ${
-							viewMode === "list"
-								? "bg-white text-violet-600 shadow-sm"
-								: "text-gray-500 hover:text-gray-700"
-						}`}
+						className={`p-2 rounded-md ${viewMode === "list" ? "bg-white text-violet-600 shadow-sm" : "text-gray-500"}`}
 					>
 						<List size={16} />
 					</button>
 				</div>
 			</div>
 
-			{/* Create Folder Inline */}
 			{showCreateFolder && (
-				<div className="flex items-center gap-2 p-3 bg-violet-50 border border-violet-200 rounded-xl animate-in fade-in">
+				<div className="flex items-center gap-2 p-3 bg-violet-50 border border-violet-200 rounded-xl">
 					<FolderPlus className="w-5 h-5 text-violet-500 flex-shrink-0" />
 					<input
 						type="text"
@@ -636,7 +701,7 @@ export function FolderView() {
 							}
 						}}
 						placeholder="Folder name..."
-						className="flex-1 bg-white border border-violet-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-violet-400"
+						className="flex-1 bg-white border border-violet-200 rounded-lg px-3 py-1.5 text-sm"
 					/>
 					<Button
 						size="sm"
@@ -651,37 +716,33 @@ export function FolderView() {
 							setShowCreateFolder(false);
 							setNewFolderName("");
 						}}
-						className="p-1 text-gray-400 hover:text-gray-600"
+						className="p-1 text-gray-400"
 					>
 						<X size={16} />
 					</button>
 				</div>
 			)}
 
-			{/* Search Loading */}
 			{isSearchMode && searchLoading && (
 				<div className="flex items-center justify-center p-16">
 					<div className="h-8 w-8 border-2 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
 				</div>
 			)}
 
-			{/* Search Results Empty State */}
 			{isSearchMode && !searchLoading && searchResults.length === 0 && (
 				<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-2xl bg-white">
 					<div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-6">
 						<Search className="w-8 h-8 text-gray-400" />
 					</div>
-					<h3 className="text-lg font-medium text-gray-900 font-heading mb-2">
+					<h3 className="text-lg font-medium text-gray-900 mb-2">
 						No results found
 					</h3>
 					<p className="text-gray-500 text-center max-w-sm">
-						No canvases match &ldquo;{searchQuery}&rdquo;. Try a different
-						keyword or check your spelling.
+						No canvases match &ldquo;{searchQuery}&rdquo;.
 					</p>
 				</div>
 			)}
 
-			{/* Search Results */}
 			{isSearchMode && !searchLoading && searchResults.length > 0 && (
 				<div>
 					<p className="text-xs text-gray-500 mb-3">
@@ -702,31 +763,22 @@ export function FolderView() {
 											router.push(`/canvas/${canvas.id}`);
 										}
 									}}
-									className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
+									className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg transition-all cursor-pointer"
 								>
 									<div className="aspect-[4/3] bg-gray-50 relative overflow-hidden">
 										{canvas.thumbnail_url ? (
-											/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-											<img
-												src={canvas.thumbnail_url}
-												alt={canvas.name || "Canvas preview"}
+											<Image
+												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
+												unoptimized
+												alt={canvas.name || "Canvas"}
 												className="w-full h-full object-cover"
-												loading="lazy"
+												width={300}
+												height={225}
 											/>
 										) : (
-											<>
-												<div
-													className="absolute inset-0 opacity-[0.4]"
-													style={{
-														backgroundImage:
-															"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
-														backgroundSize: "16px 16px",
-													}}
-												/>
-												<div className="w-full h-full flex items-center justify-center">
-													<File className="w-10 h-10 text-gray-300" />
-												</div>
-											</>
+											<div className="w-full h-full flex items-center justify-center">
+												<File className="w-10 h-10 text-gray-300" />
+											</div>
 										)}
 										<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
 									</div>
@@ -737,8 +789,7 @@ export function FolderView() {
 													{canvas.name || "Untitled"}
 												</h3>
 												{currentUserId && canvas.owner_id !== currentUserId && (
-													<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-														<Share2 size={10} />
+													<span className="px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
 														Shared
 													</span>
 												)}
@@ -747,6 +798,36 @@ export function FolderView() {
 												{formatDate(canvas.updated_at)}
 											</p>
 										</div>
+										{(!currentUserId || canvas.owner_id === currentUserId) && (
+											<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+												<button
+													type="button"
+													onClick={(e) => handleDuplicate(canvas, e)}
+													className="p-1.5 text-gray-400 hover:text-violet-600"
+													title="Duplicate"
+												>
+													<Copy size={14} />
+												</button>
+												<button
+													type="button"
+													onClick={(e) =>
+														handleArchive(canvas.id, !!canvas.is_archived, e)
+													}
+													className="p-1.5 text-gray-400 hover:text-orange-600"
+													title={canvas.is_archived ? "Unarchive" : "Archive"}
+												>
+													<Archive size={14} />
+												</button>
+												<button
+													type="button"
+													onClick={(e) => handleDeleteCanvas(canvas.id, e)}
+													className="p-1.5 text-gray-400 hover:text-red-500"
+													title="Delete"
+												>
+													<Trash2 size={14} />
+												</button>
+											</div>
+										)}
 									</div>
 								</div>
 							))}
@@ -770,36 +851,33 @@ export function FolderView() {
 									<div className="flex items-center gap-4 min-w-0">
 										<div className="h-10 w-14 bg-gray-50 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200">
 											{canvas.thumbnail_url ? (
-												/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-												<img
-													src={canvas.thumbnail_url}
-													alt={canvas.name || "Canvas preview"}
+												<Image
+													src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
+													unoptimized
+													alt={canvas.name}
 													className="w-full h-full object-cover"
-													loading="lazy"
+													width={56}
+													height={40}
 												/>
 											) : (
 												<File size={18} className="text-violet-500" />
 											)}
 										</div>
 										<div className="min-w-0">
-											<div className="flex items-center gap-1.5">
-												<h3 className="font-medium text-gray-900 truncate">
-													{canvas.name || "Untitled"}
-												</h3>
-												{currentUserId && canvas.owner_id !== currentUserId && (
-													<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-														<Share2 size={10} />
-														Shared
-													</span>
-												)}
-											</div>
+											<h3 className="font-medium text-gray-900 truncate">
+												{canvas.name || "Untitled"}
+											</h3>
 											<p className="text-xs text-gray-500">
 												Edited {formatDate(canvas.updated_at)}
 											</p>
 										</div>
 									</div>
-									<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-										<Button variant="secondary" size="sm">
+									<div className="opacity-0 group-hover:opacity-100 transition-opacity">
+										<Button
+											variant="secondary"
+											size="sm"
+											onClick={() => router.push(`/canvas/${canvas.id}`)}
+										>
 											Open
 										</Button>
 									</div>
@@ -810,7 +888,6 @@ export function FolderView() {
 				</div>
 			)}
 
-			{/* Empty State (non-search) */}
 			{!isSearchMode && isEmpty && (
 				<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-2xl bg-white">
 					<div className="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mb-6">
@@ -820,14 +897,9 @@ export function FolderView() {
 							<File className="w-8 h-8 text-violet-500" />
 						)}
 					</div>
-					<h3 className="text-lg font-medium text-gray-900 font-heading mb-2">
+					<h3 className="text-lg font-medium text-gray-900 mb-2">
 						{currentFolderId ? "This folder is empty" : "No canvases yet"}
 					</h3>
-					<p className="text-gray-500 text-center max-w-sm mb-6">
-						{currentFolderId
-							? "Create a canvas or folder, or drag items here."
-							: "Create your first canvas to start brainstorming with your team."}
-					</p>
 					<div className="flex gap-3">
 						<Button
 							variant="secondary"
@@ -844,10 +916,8 @@ export function FolderView() {
 				</div>
 			)}
 
-			{/* Grid View */}
 			{!isSearchMode && !isEmpty && viewMode === "grid" && (
 				<div className="space-y-6">
-					{/* Folders */}
 					{folders.length > 0 && (
 						<div>
 							<h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
@@ -870,21 +940,14 @@ export function FolderView() {
 										onKeyDown={(e) => {
 											if (e.key === "Enter" || e.key === " ") {
 												e.preventDefault();
-												navigateToFolder(folder.id);
+												if (!justDroppedRef.current)
+													navigateToFolder(folder.id);
 											}
 										}}
-										className={`group relative flex items-center gap-3 p-4 bg-white border rounded-xl cursor-pointer transition-all ${
-											dragOverFolderId === folder.id
-												? "border-violet-400 bg-violet-50 shadow-lg shadow-violet-100 scale-[1.02]"
-												: "border-gray-200 hover:border-violet-300 hover:shadow-md hover:shadow-violet-50"
-										}`}
+										className={`group relative flex items-center gap-3 p-4 bg-white border rounded-xl cursor-pointer transition-all ${dragOverFolderId === folder.id ? "border-violet-400 bg-violet-50 scale-[1.02]" : "border-gray-200 hover:border-violet-300 hover:shadow-md"}`}
 									>
 										<div
-											className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
-												dragOverFolderId === folder.id
-													? "bg-violet-200"
-													: "bg-amber-50 group-hover:bg-amber-100"
-											}`}
+											className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${dragOverFolderId === folder.id ? "bg-violet-200" : "bg-amber-50 group-hover:bg-amber-100"}`}
 										>
 											{dragOverFolderId === folder.id ? (
 												<FolderOpen className="w-5 h-5 text-violet-600" />
@@ -904,7 +967,7 @@ export function FolderView() {
 											<button
 												type="button"
 												onClick={(e) => handleDeleteFolder(folder.id, e)}
-												className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+												className="p-1.5 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
 											>
 												<Trash2 size={14} />
 											</button>
@@ -915,7 +978,6 @@ export function FolderView() {
 						</div>
 					)}
 
-					{/* Canvases */}
 					{canvases.length > 0 && (
 						<div>
 							<h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
@@ -936,64 +998,63 @@ export function FolderView() {
 												router.push(`/canvas/${canvas.id}`);
 											}
 										}}
-										className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
+										className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg transition-all cursor-pointer"
 									>
-										{/* Thumbnail */}
 										<div className="aspect-[4/3] bg-gray-50 relative overflow-hidden">
 											{canvas.thumbnail_url ? (
-												/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-												<img
-													src={canvas.thumbnail_url}
-													alt={canvas.name || "Canvas preview"}
-													className="w-full h-full object-cover"
-													loading="lazy"
+												<Image
+													src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
+													unoptimized
+													alt={canvas.name || "Canvas"}
+													className="object-cover"
+													fill
 												/>
 											) : (
-												<>
-													<div
-														className="absolute inset-0 opacity-[0.4]"
-														style={{
-															backgroundImage:
-																"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
-															backgroundSize: "16px 16px",
-														}}
-													/>
-													<div className="w-full h-full flex items-center justify-center">
-														<File className="w-10 h-10 text-gray-300" />
-													</div>
-												</>
+												<div className="w-full h-full flex items-center justify-center">
+													<File className="w-10 h-10 text-gray-300" />
+												</div>
 											)}
 											<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
 										</div>
-
-										{/* Info */}
 										<div className="p-3 flex items-center justify-between border-t border-gray-100">
 											<div className="min-w-0 flex-1">
-												<div className="flex items-center gap-1.5">
-													<h3 className="font-medium text-sm text-gray-900 truncate">
-														{canvas.name || "Untitled"}
-													</h3>
-													{currentUserId &&
-														canvas.owner_id !== currentUserId && (
-															<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-																<Share2 size={10} />
-																Shared
-															</span>
-														)}
-												</div>
+												<h3 className="font-medium text-sm text-gray-900 truncate">
+													{canvas.name || "Untitled"}
+												</h3>
 												<p className="text-xs text-gray-500 mt-0.5">
 													{formatDate(canvas.updated_at)}
 												</p>
 											</div>
 											{(!currentUserId ||
 												canvas.owner_id === currentUserId) && (
-												<button
-													type="button"
-													onClick={(e) => handleDeleteCanvas(canvas.id, e)}
-													className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
-												>
-													<Trash2 size={14} />
-												</button>
+												<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+													<button
+														type="button"
+														onClick={(e) => handleDuplicate(canvas, e)}
+														className="p-1.5 text-gray-400 hover:text-violet-600"
+														title="Duplicate"
+													>
+														<Copy size={14} />
+													</button>
+													<button
+														type="button"
+														onClick={(e) =>
+															handleArchive(canvas.id, !!canvas.is_archived, e)
+														}
+														className="p-1.5 text-gray-400 hover:text-orange-600"
+														title={canvas.is_archived ? "Unarchive" : "Archive"}
+													>
+														<Archive size={14} />
+													</button>
+													<button
+														type="button"
+														onClick={(e) => handleDeleteCanvas(canvas.id, e)}
+														className="p-1.5 text-gray-400 hover:text-red-500"
+														title="Delete"
+													>
+														<Trash2 size={14} />
+													</button>
+												</div>
 											)}
 										</div>
 									</div>
@@ -1004,10 +1065,8 @@ export function FolderView() {
 				</div>
 			)}
 
-			{/* List View */}
 			{!isSearchMode && !isEmpty && viewMode === "list" && (
 				<div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
-					{/* Folders */}
 					{folders.map((folder) => (
 						<div
 							key={folder.id}
@@ -1024,22 +1083,14 @@ export function FolderView() {
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") {
 									e.preventDefault();
-									navigateToFolder(folder.id);
+									if (!justDroppedRef.current) navigateToFolder(folder.id);
 								}
 							}}
-							className={`flex items-center justify-between p-4 cursor-pointer group transition-all ${
-								dragOverFolderId === folder.id
-									? "bg-violet-50 border-l-2 border-violet-400"
-									: "hover:bg-violet-50/50"
-							}`}
+							className={`flex items-center justify-between p-4 cursor-pointer group transition-all ${dragOverFolderId === folder.id ? "bg-violet-50 border-l-2 border-violet-400" : "hover:bg-violet-50/50"}`}
 						>
 							<div className="flex items-center gap-4 min-w-0">
 								<div
-									className={`h-10 w-10 rounded-lg flex-shrink-0 flex items-center justify-center transition-colors ${
-										dragOverFolderId === folder.id
-											? "bg-violet-200"
-											: "bg-amber-50"
-									}`}
+									className={`h-10 w-10 rounded-lg flex-shrink-0 flex items-center justify-center transition-colors ${dragOverFolderId === folder.id ? "bg-violet-200" : "bg-amber-50"}`}
 								>
 									{dragOverFolderId === folder.id ? (
 										<FolderOpen size={20} className="text-violet-600" />
@@ -1056,7 +1107,7 @@ export function FolderView() {
 									</p>
 								</div>
 							</div>
-							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+							<div className="opacity-0 group-hover:opacity-100 transition-opacity">
 								<Button variant="secondary" size="sm">
 									Open
 								</Button>
@@ -1064,7 +1115,7 @@ export function FolderView() {
 									<button
 										type="button"
 										onClick={(e) => handleDeleteFolder(folder.id, e)}
-										className="p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+										className="p-2 text-gray-400 hover:text-red-500"
 									>
 										<Trash2 size={14} />
 									</button>
@@ -1073,7 +1124,6 @@ export function FolderView() {
 						</div>
 					))}
 
-					{/* Canvases */}
 					{canvases.map((canvas) => (
 						<div
 							key={canvas.id}
@@ -1093,46 +1143,64 @@ export function FolderView() {
 							<div className="flex items-center gap-4 min-w-0">
 								<div className="h-10 w-14 bg-gray-50 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200">
 									{canvas.thumbnail_url ? (
-										/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-										<img
-											src={canvas.thumbnail_url}
-											alt={canvas.name || "Canvas preview"}
+										<Image
+											src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
+											unoptimized
+											alt={canvas.name || "Canvas"}
 											className="w-full h-full object-cover"
-											loading="lazy"
+											width={56}
+											height={40}
 										/>
 									) : (
 										<File size={18} className="text-violet-500" />
 									)}
 								</div>
 								<div className="min-w-0">
-									<div className="flex items-center gap-1.5">
-										<h3 className="font-medium text-gray-900 truncate">
-											{canvas.name || "Untitled"}
-										</h3>
-										{currentUserId && canvas.owner_id !== currentUserId && (
-											<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-												<Share2 size={10} />
-												Shared
-											</span>
-										)}
-									</div>
+									<h3 className="font-medium text-gray-900 truncate">
+										{canvas.name || "Untitled"}
+									</h3>
 									<p className="text-xs text-gray-500">
 										Edited {formatDate(canvas.updated_at)}
 									</p>
 								</div>
 							</div>
 							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-								<Button variant="secondary" size="sm">
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+								>
 									Open
 								</Button>
 								{(!currentUserId || canvas.owner_id === currentUserId) && (
-									<button
-										type="button"
-										onClick={(e) => handleDeleteCanvas(canvas.id, e)}
-										className="p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
-									>
-										<Trash2 size={14} />
-									</button>
+									<div className="flex gap-2">
+										<button
+											type="button"
+											onClick={(e) => handleDuplicate(canvas, e)}
+											className="p-2 text-gray-400 hover:text-violet-600"
+											title="Duplicate"
+										>
+											<Copy size={14} />
+										</button>
+										<button
+											type="button"
+											onClick={(e) =>
+												handleArchive(canvas.id, !!canvas.is_archived, e)
+											}
+											className="p-2 text-gray-400 hover:text-orange-600"
+											title={canvas.is_archived ? "Unarchive" : "Archive"}
+										>
+											<Archive size={14} />
+										</button>
+										<button
+											type="button"
+											onClick={(e) => handleDeleteCanvas(canvas.id, e)}
+											className="p-2 text-gray-400 hover:text-red-500"
+											title="Delete"
+										>
+											<Trash2 size={14} />
+										</button>
+									</div>
 								)}
 							</div>
 						</div>

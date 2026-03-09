@@ -88,6 +88,7 @@ export function Toolbar() {
 	const setActiveTool = useCanvasStore((state) => state.setActiveTool);
 	const isReadOnly = useCanvasStore((state) => state.isReadOnly);
 	const setReadOnly = useCanvasStore((state) => state.setReadOnly);
+	const isArchived = useCanvasStore((state) => state.isArchived);
 
 	return (
 		<div className="absolute left-1/2 top-[72px] sm:top-4 -translate-x-1/2 z-[var(--z-toolbar)] max-w-[calc(100vw-32px)]">
@@ -103,15 +104,26 @@ export function Toolbar() {
 				{/* Lock/Unlock Button - Toggle Read-Only Mode */}
 				<button
 					type="button"
-					onClick={() => setReadOnly(!isReadOnly)}
-					title={isReadOnly ? "Unlock Canvas (L)" : "Lock Canvas (L)"}
+					onClick={() => {
+						if (!isArchived) setReadOnly(!isReadOnly);
+					}}
+					disabled={isArchived}
+					title={
+						isArchived
+							? "Canvas is archived (locked)"
+							: isReadOnly
+								? "Unlock Canvas (L)"
+								: "Lock Canvas (L)"
+					}
 					className={`
 						relative w-10 h-10 rounded-lg flex items-center justify-center
-						transition-all duration-150 cursor-pointer border-none group
+						transition-all duration-150 border-none group
 						${
-							isReadOnly
-								? "bg-red-100 text-red-600"
-								: "text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+							isArchived
+								? "bg-gray-200 text-gray-400 cursor-not-allowed"
+								: isReadOnly
+									? "bg-red-100 text-red-600 cursor-pointer"
+									: "text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer"
 						}
 					`}
 					style={{ borderRadius: "8px" }}

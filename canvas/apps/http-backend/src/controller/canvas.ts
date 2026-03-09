@@ -11,13 +11,16 @@ import {
 	createCanvasService,
 	createInviteService,
 	deleteCanvasService,
+	duplicateCanvasService,
 	getCanvasesService,
 	getCanvasService,
 	getRecentCanvasesService,
 	joinCanvasService,
 	searchCanvasesService,
+	toggleArchiveCanvasService,
 	touchCanvasAccessService,
 	updateCanvasService,
+	uploadCanvasThumbnailService,
 } from "../services/canvas.js";
 
 export const createCanvas = async (req: Request, res: Response) => {
@@ -148,12 +151,15 @@ export const searchCanvases = async (req: Request, res: Response) => {
 	// Validate order
 	const order: "asc" | "desc" = orderParam === "asc" ? "asc" : "desc";
 
+	const isArchived = req.query.isArchived === "true";
+
 	const result = await searchCanvasesService(req.user.id, {
 		q,
 		sortBy,
 		order,
 		page,
 		limit,
+		isArchived,
 	});
 
 	return JSONResponse(
@@ -203,6 +209,11 @@ export const createInviteLink = async (req: Request, res: Response) => {
 		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
 	}
 
+export const updateThumbnail = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -221,6 +232,32 @@ export const createInviteLink = async (req: Request, res: Response) => {
 	const { role } = parsedData.data;
 
 	const { inviteLink } = await createInviteService(roomId, role, userId);
+	const { thumbnail_url } = req.body;
+	if (!thumbnail_url) {
+		throw new HttpError("thumbnail_url is required", StatusCodes.BAD_REQUEST);
+	}
+
+	const publicUrl = await uploadCanvasThumbnailService(
+		roomId,
+		thumbnail_url,
+		req.user.id,
+	);
+
+	return JSONResponse(res, StatusCodes.OK, "Thumbnail uploaded successfully", {
+		thumbnail_url: publicUrl,
+	});
+};
+
+export const duplicateCanvas = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const copy = await duplicateCanvasService(roomId, req.user.id);
 
 	return JSONResponse(
 		res,
@@ -238,6 +275,18 @@ export const joinCanvasWithLink = async (req: Request, res: Response) => {
 		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
 	}
 
+		"Canvas duplicated successfully",
+		{
+			canvas: copy,
+		},
+	);
+};
+
+export const toggleArchiveCanvas = async (req: Request, res: Response) => {
+	const roomId = req.params.roomId;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -248,6 +297,10 @@ export const joinCanvasWithLink = async (req: Request, res: Response) => {
 		throw new HttpError(
 			"Validation Failed: " +
 				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+	const { isArchived } = req.body;
+	if (typeof isArchived !== "boolean") {
+		throw new HttpError(
+			"isArchived (boolean) is required",
 			StatusCodes.BAD_REQUEST,
 		);
 	}
@@ -268,4 +321,11 @@ export const joinCanvasWithLink = async (req: Request, res: Response) => {
 	return JSONResponse(res, StatusCodes.OK, "Successfully joined canvas", {
 		role: result.role,
 	});
+	await toggleArchiveCanvasService(roomId, req.user.id, isArchived);
+
+	return JSONResponse(
+		res,
+		StatusCodes.OK,
+		`Canvas ${isArchived ? "archived" : "unarchived"} successfully`,
+	);
 };

@@ -409,6 +409,7 @@ describe("GET /api/v1/canvas/search", () => {
 			order: "desc",
 			page: 1,
 			limit: 20,
+			isArchived: false,
 		});
 	});
 

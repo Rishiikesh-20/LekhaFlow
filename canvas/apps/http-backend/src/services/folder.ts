@@ -48,6 +48,7 @@ export const getFolderContentsService = async (
 	folderId?: string | null,
 	sortBy?: string,
 	order?: string,
+	isArchived?: boolean,
 ): Promise<{
 	folders: Tables<"folders">[];
 	canvases: Tables<"canvases">[];
@@ -65,10 +66,17 @@ export const getFolderContentsService = async (
 		folderQuery = folderQuery.is("parent_id", null);
 	}
 
-	const { data: folders, error: folderError } = await folderQuery;
-
-	if (folderError) {
-		throw new HttpError(folderError.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	// Don't show folders if we only want archived items (since folders don't have is_archived yet)
+	let folders: Tables<"folders">[] = [];
+	if (!isArchived) {
+		const { data: folderData, error: folderError } = await folderQuery;
+		if (folderError) {
+			throw new HttpError(
+				folderError.message,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+		folders = folderData || [];
 	}
 
 	// Determine canvas sort column and direction
@@ -88,10 +96,17 @@ export const getFolderContentsService = async (
 		.eq("is_deleted", false)
 		.order(orderColumn, { ascending });
 
-	if (folderId) {
-		canvasQuery = canvasQuery.eq("folder_id", folderId);
+	// If in archived mode, show all archived canvases for this user (flat list)
+	// Otherwise, filter by current folder
+	if (isArchived) {
+		canvasQuery = canvasQuery.eq("is_archived", true);
 	} else {
-		canvasQuery = canvasQuery.is("folder_id", null);
+		canvasQuery = canvasQuery.eq("is_archived", false);
+		if (folderId) {
+			canvasQuery = canvasQuery.eq("folder_id", folderId);
+		} else {
+			canvasQuery = canvasQuery.is("folder_id", null);
+		}
 	}
 
 	const { data: canvases, error: canvasError } = await canvasQuery;
@@ -101,7 +116,7 @@ export const getFolderContentsService = async (
 	}
 
 	return {
-		folders: folders || [],
+		folders,
 		canvases: canvases || [],
 	};
 };
