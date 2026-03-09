@@ -172,16 +172,24 @@ export const getRecentCanvases = async (req: Request, res: Response) => {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
 
-	const canvases = await getRecentCanvasesService(req.user.id);
+	try {
+		const canvases = await getRecentCanvasesService(req.user.id);
 
-	return JSONResponse(
-		res,
-		StatusCodes.OK,
-		"Recent canvases retrieved successfully",
-		{
-			canvases,
-		},
-	);
+		return JSONResponse(
+			res,
+			StatusCodes.OK,
+			"Recent canvases retrieved successfully",
+			{
+				canvases,
+			},
+		);
+	} catch (error) {
+		throw new HttpError(
+			"Failed to retrieve recent canvases: " +
+				(error instanceof Error ? error.message : "Unknown error"),
+			StatusCodes.INTERNAL_SERVER_ERROR,
+		);
+	}
 };
 
 export const touchCanvasAccess = async (req: Request, res: Response) => {
