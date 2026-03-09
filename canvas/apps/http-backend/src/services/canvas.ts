@@ -200,7 +200,7 @@ export const searchCanvasesService = async (
 	// If tagId filter is active, resolve which canvas IDs have that tag
 	let tagFilteredIds: string[] | null = null;
 	if (tagId) {
-		const { data: tagRows } = await serviceClient
+		const { data: tagRows } = await getClient()
 			.from("tags_on_canvases")
 			.select("canvas_id")
 			.eq("tag_id", tagId);
@@ -214,11 +214,7 @@ export const searchCanvasesService = async (
 
 	// If no search query, return all canvases with sorting & pagination
 	if (!q.trim()) {
-<<<<<<< HEAD
-		const { count } = await getClient()
-=======
-		let countQuery = serviceClient
->>>>>>> 94b3a08 (feat: Introduce tag management including CRUD operations and canvas association.)
+		let countQuery = getClient()
 			.from("canvases")
 			.select("*", { count: "exact", head: true })
 			.eq("owner_id", userId)
@@ -234,11 +230,7 @@ export const searchCanvasesService = async (
 		const from = (page - 1) * limit;
 		const to = from + limit - 1;
 
-<<<<<<< HEAD
-		const { data, error } = await getClient()
-=======
-		let dataQuery = serviceClient
->>>>>>> 94b3a08 (feat: Introduce tag management including CRUD operations and canvas association.)
+		let dataQuery = getClient()
 			.from("canvases")
 			.select("*")
 			.eq("owner_id", userId)
