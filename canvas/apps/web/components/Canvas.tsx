@@ -1915,10 +1915,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	const handleCompleteText = useCallback(
 		async (text: string) => {
 			if (editingText && text.trim()) {
-				// Get the textarea dimensions for the text box size
-				const textarea = textareaRef.current;
-				const width = textarea ? textarea.offsetWidth : 200;
-				const height = textarea ? textarea.offsetHeight : 40;
+				// Use default dimensions since textarea ref is no longer available
+				const width = editingText.initialWidth ?? 200;
+				const height = editingText.initialHeight ?? 40;
 
 				if (editingText.elementId) {
 					// Update existing text element
@@ -1945,9 +1944,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					if (mentionMatches && mentionMatches.length > 0) {
 						const state = useCanvasStore.getState();
 						const rId = state.roomId;
-						const me = state.myIdentity;
+						const myName = state.myName;
 
-						if (rId && me) {
+						if (rId && myName) {
 							const { data } = await supabase.auth.getSession();
 							if (data?.session) {
 								const collabMap = state.collaborators;
@@ -1974,7 +1973,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 												body: JSON.stringify({
 													userId: collab.id,
 													type: "mention",
-													content: `${me.name} mentioned you: "${text.substring(0, 40)}..."`,
+													content: `${myName} mentioned you: "${text.substring(0, 40)}..."`,
 													canvasId: rId,
 												}),
 											}).catch(console.error);
@@ -1990,6 +1989,26 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			} else if (editingText?.elementId && !text.trim()) {
 				// If editing existing element and text is empty, delete the element
 				deleteElements([editingText.elementId]);
+			}
+
+			setEditingText(null);
+			setTextEditing(false);
+			updateEditingElement(null);
+		},
+		[
+			editingText,
+			zoom,
+			currentStrokeColor,
+			currentOpacity,
+			addElement,
+			updateElement,
+			deleteElements,
+			getNextZIndex,
+			setTextEditing,
+			updateEditingElement,
+		],
+	);
+
 	const handleCompleteRichText = useCallback(
 		(
 			runs: TextRun[],
