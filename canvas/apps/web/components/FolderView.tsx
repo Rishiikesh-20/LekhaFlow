@@ -815,10 +815,9 @@ export function FolderView({
 												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 												unoptimized
 												alt={canvas.name || "Canvas preview"}
-												className="w-full h-full object-cover"
+												className="object-cover"
 												loading="lazy"
-												width={320}
-												height={180}
+												fill
 											/>
 										) : (
 											<div>
@@ -1089,9 +1088,8 @@ export function FolderView({
 												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 												unoptimized
 												alt={canvas.name || "Canvas"}
-												className="w-full h-full object-cover"
-												width={300}
-												height={225}
+												className="object-cover"
+												fill
 											/>
 										) : (
 											<div className="w-full h-full flex items-center justify-center">
@@ -1147,9 +1145,8 @@ export function FolderView({
 													src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 													unoptimized
 													alt={canvas.name}
-													className="w-full h-full object-cover"
-													width={56}
-													height={40}
+													className="object-cover"
+													fill
 												/>
 											) : (
 												<File size={18} className="text-violet-500" />
@@ -1517,9 +1514,8 @@ export function FolderView({
 											src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 											unoptimized
 											alt={canvas.name || "Canvas"}
-											className="w-full h-full object-cover"
-											width={56}
-											height={40}
+											className="object-cover"
+											fill
 										/>
 									) : (
 										<File size={18} className="text-violet-500" />
