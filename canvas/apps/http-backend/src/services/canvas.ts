@@ -175,6 +175,7 @@ export interface SearchCanvasesOptions {
 	order?: "asc" | "desc";
 	page?: number;
 	limit?: number;
+	tagId?: string;
 	isArchived?: boolean;
 }
 
@@ -193,26 +194,48 @@ export const searchCanvasesService = async (
 		order = "desc",
 		page = 1,
 		limit = 20,
+		tagId,
 		isArchived = false,
 	} = options;
 
 	const ascending = order === "asc";
 	const orderColumn = sortBy === "title" ? "name" : "created_at";
 
+	// If tagId filter is active, resolve which canvas IDs have that tag
+	let tagFilteredIds: string[] | null = null;
+	if (tagId) {
+		const { data: tagRows } = await getClient()
+			.from("tags_on_canvases")
+			.select("canvas_id")
+			.eq("tag_id", tagId);
+
+		tagFilteredIds = (tagRows || []).map((r) => r.canvas_id);
+		if (tagFilteredIds.length === 0) {
+			// No canvases have this tag — return empty
+			return { canvases: [], total: 0, page, limit };
+		}
+	}
+
 	// If no search query, return all canvases with sorting & pagination
 	if (!q.trim()) {
-		const { count } = await getClient()
+		let countQuery = getClient()
 			.from("canvases")
 			.select("*", { count: "exact", head: true })
 			.eq("owner_id", userId)
 			.eq("is_deleted", false)
 			.eq("is_archived", isArchived);
 
+		if (tagFilteredIds) {
+			countQuery = countQuery.in("id", tagFilteredIds);
+		}
+
+		const { count } = await countQuery;
+
 		const total = count ?? 0;
 		const from = (page - 1) * limit;
 		const to = from + limit - 1;
 
-		const { data, error } = await getClient()
+		let dataQuery = getClient()
 			.from("canvases")
 			.select("*")
 			.eq("owner_id", userId)
@@ -220,6 +243,12 @@ export const searchCanvasesService = async (
 			.eq("is_archived", isArchived)
 			.order(orderColumn, { ascending })
 			.range(from, to);
+
+		if (tagFilteredIds) {
+			dataQuery = dataQuery.in("id", tagFilteredIds);
+		}
+
+		const { data, error } = await dataQuery;
 
 		if (error) {
 			throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
@@ -274,7 +303,13 @@ export const searchCanvasesService = async (
 	}
 
 	// Merge and deduplicate
-	const allCanvases = [...(nameMatches || []), ...tagCanvases];
+	let allCanvases = [...(nameMatches || []), ...tagCanvases];
+
+	// Apply tagId filter if active (intersection with tag-based search results)
+	if (tagFilteredIds) {
+		const idSet = new Set(tagFilteredIds);
+		allCanvases = allCanvases.filter((c) => idSet.has(c.id));
+	}
 
 	// Sort
 	allCanvases.sort((a, b) => {

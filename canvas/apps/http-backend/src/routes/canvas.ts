@@ -13,6 +13,7 @@ import {
 	updateCanvas,
 	updateThumbnail,
 } from "../controller/canvas";
+import { assignTag, getCanvasTags, unassignTag } from "../controller/tag";
 import { authMiddleware } from "../middleware/auth";
 export const canvasRouter: RouterType = Router();
 
@@ -25,5 +26,10 @@ canvasRouter.put("/:roomId", authMiddleware, updateCanvas);
 canvasRouter.patch("/:roomId/touch", authMiddleware, touchCanvasAccess);
 canvasRouter.put("/:roomId/thumbnail", authMiddleware, updateThumbnail);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
+
+// Canvas-scoped tag routes
+canvasRouter.get("/:roomId/tags", authMiddleware, getCanvasTags);
+canvasRouter.post("/:roomId/tags", authMiddleware, assignTag);
+canvasRouter.delete("/:roomId/tags/:tagId", authMiddleware, unassignTag);
 canvasRouter.post("/:roomId/duplicate", authMiddleware, duplicateCanvas);
 canvasRouter.patch("/:roomId/archive", authMiddleware, toggleArchiveCanvas);

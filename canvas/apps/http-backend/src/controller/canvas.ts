@@ -132,6 +132,7 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		100,
 		Math.max(1, parseInt(req.query.limit as string, 10) || 20),
 	);
+	const tagId = (req.query.tagId as string) || undefined;
 
 	// Validate sortBy
 	const sortBy: "createdAt" | "title" =
@@ -148,6 +149,7 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		order,
 		page,
 		limit,
+		tagId,
 		isArchived,
 	});
 
