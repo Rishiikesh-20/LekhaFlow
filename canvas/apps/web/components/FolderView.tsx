@@ -6,8 +6,8 @@ import {
 	Check,
 	ChevronRight,
 	Clock,
-	Edit2,
 	Copy,
+	Edit2,
 	File,
 	Folder,
 	FolderOpen,
@@ -62,7 +62,6 @@ interface TagItem {
 	color: string | null;
 }
 
-export function FolderView() {
 export function FolderView({
 	archivedOnly = false,
 }: {
@@ -320,7 +319,14 @@ export function FolderView({
 		}, 300);
 
 		return () => clearTimeout(timer);
-	}, [searchQuery, sortBy, sortOrder, activeTagFilter, getAuthHeaders,archivedOnly]);
+	}, [
+		searchQuery,
+		sortBy,
+		sortOrder,
+		activeTagFilter,
+		getAuthHeaders,
+		archivedOnly,
+	]);
 
 	const handleSortChange = (value: string) => {
 		switch (value) {
@@ -1112,63 +1118,8 @@ export function FolderView({
 												<p className="text-xs text-gray-500 mt-0.5">
 													{formatDate(canvas.updated_at)}
 												</p>
-									<div className="p-3 flex items-center justify-between border-t border-gray-100">
-										<div className="min-w-0 flex-1">
-											<div className="flex items-center gap-1.5">
-												<h3 className="font-medium text-sm text-gray-900 truncate">
-													{canvas.name || "Untitled"}
-												</h3>
-												{currentUserId && canvas.owner_id !== currentUserId && (
-													<span className="px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-														Shared
-													</span>
-												)}
 											</div>
 										</div>
-										{(canvasTags[canvas.id] || []).length > 0 && (
-											<div className="flex flex-wrap gap-1 mt-1.5">
-												{(canvasTags[canvas.id] || []).map((tag) => (
-													<span
-														key={tag.id}
-														className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium"
-														style={{
-															backgroundColor: tag.color || "#6D28D9",
-															color: getContrastColor(tag.color),
-														}}
-													>
-														{tag.name}
-													</span>
-												))}
-										{(!currentUserId || canvas.owner_id === currentUserId) && (
-											<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-												<button
-													type="button"
-													onClick={(e) => handleDuplicate(canvas, e)}
-													className="p-1.5 text-gray-400 hover:text-violet-600"
-													title="Duplicate"
-												>
-													<Copy size={14} />
-												</button>
-												<button
-													type="button"
-													onClick={(e) =>
-														handleArchive(canvas.id, !!canvas.is_archived, e)
-													}
-													className="p-1.5 text-gray-400 hover:text-orange-600"
-													title={canvas.is_archived ? "Unarchive" : "Archive"}
-												>
-													<Archive size={14} />
-												</button>
-												<button
-													type="button"
-													onClick={(e) => handleDeleteCanvas(canvas.id, e)}
-													className="p-1.5 text-gray-400 hover:text-red-500"
-													title="Delete"
-												>
-													<Trash2 size={14} />
-												</button>
-											</div>
-										)}
 									</div>
 								</div>
 							))}
@@ -1473,44 +1424,6 @@ export function FolderView({
 															{tag.name}
 														</span>
 													))}
-										<div className="p-3 flex items-center justify-between border-t border-gray-100">
-											<div className="min-w-0 flex-1">
-												<h3 className="font-medium text-sm text-gray-900 truncate">
-													{canvas.name || "Untitled"}
-												</h3>
-												<p className="text-xs text-gray-500 mt-0.5">
-													{formatDate(canvas.updated_at)}
-												</p>
-											</div>
-											{(!currentUserId ||
-												canvas.owner_id === currentUserId) && (
-												<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-													<button
-														type="button"
-														onClick={(e) => handleDuplicate(canvas, e)}
-														className="p-1.5 text-gray-400 hover:text-violet-600"
-														title="Duplicate"
-													>
-														<Copy size={14} />
-													</button>
-													<button
-														type="button"
-														onClick={(e) =>
-															handleArchive(canvas.id, !!canvas.is_archived, e)
-														}
-														className="p-1.5 text-gray-400 hover:text-orange-600"
-														title={canvas.is_archived ? "Unarchive" : "Archive"}
-													>
-														<Archive size={14} />
-													</button>
-													<button
-														type="button"
-														onClick={(e) => handleDeleteCanvas(canvas.id, e)}
-														className="p-1.5 text-gray-400 hover:text-red-500"
-														title="Delete"
-													>
-														<Trash2 size={14} />
-													</button>
 												</div>
 											)}
 										</div>
@@ -1711,15 +1624,13 @@ export function FolderView({
 										</div>
 									)}
 								</div>
-								<Button variant="secondary" size="sm">
-								<div className="min-w-0">
-									<h3 className="font-medium text-gray-900 truncate">
-										{canvas.name || "Untitled"}
-									</h3>
-									<p className="text-xs text-gray-500">
-										Edited {formatDate(canvas.updated_at)}
-									</p>
-								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+								>
+									Open
+								</Button>
 							</div>
 							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
 								<Button
