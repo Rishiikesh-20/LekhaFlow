@@ -76,6 +76,7 @@ export function SetupStatus() {
 		<>
 			{!allTablesExist && !isOpen && (
 				<button
+					type="button"
 					onClick={() => setIsOpen(true)}
 					className="fixed bottom-4 left-4 z-50 bg-amber-500 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-amber-600 transition-colors flex items-center gap-2 animate-pulse"
 				>
@@ -99,6 +100,7 @@ export function SetupStatus() {
 								</p>
 							</div>
 							<button
+								type="button"
 								onClick={() => setIsOpen(false)}
 								className="p-2 hover:bg-white/50 rounded-lg transition-colors"
 							>
@@ -205,6 +207,7 @@ export function SetupStatus() {
 							{/* Actions */}
 							<div className="flex gap-3 mt-6">
 								<button
+									type="button"
 									onClick={checkTables}
 									disabled={checking}
 									className="flex-1 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
@@ -213,6 +216,7 @@ export function SetupStatus() {
 								</button>
 								{allTablesExist && (
 									<button
+										type="button"
 										onClick={() => setIsOpen(false)}
 										className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-semibold"
 									>

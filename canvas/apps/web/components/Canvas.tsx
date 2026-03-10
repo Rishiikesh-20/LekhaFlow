@@ -144,8 +144,8 @@ import { HeaderLeft, HeaderRight } from "./canvas/Header";
 import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
-import { RoomChat } from "./canvas/RoomChat";
 import { RichTextEditor } from "./canvas/RichTextEditor";
+import { RoomChat } from "./canvas/RoomChat";
 import { RotationControls } from "./canvas/RotationControls";
 import { TextFormattingToolbar } from "./canvas/TextFormattingToolbar";
 // Import components directly to avoid circular dependencies through barrel exports
@@ -1912,7 +1912,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	/**
 	 * Complete rich-text editing — create or update text element with runs.
 	 */
-	const handleCompleteText = useCallback(
+	const _handleCompleteText = useCallback(
 		async (text: string) => {
 			if (editingText && text.trim()) {
 				// Use default dimensions since textarea ref is no longer available

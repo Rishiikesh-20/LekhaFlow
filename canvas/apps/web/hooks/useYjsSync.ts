@@ -649,6 +649,8 @@ export function useYjsSync(
 		const provider = providerRef.current;
 		if (!provider?.awareness) return;
 		provider.awareness.setLocalStateField("viewport", viewport);
+	}, []);
+
 	/** Broadcast which element the local user is currently editing (text). */
 	const updateEditingElement = useCallback((id: string | null) => {
 		const provider = providerRef.current;

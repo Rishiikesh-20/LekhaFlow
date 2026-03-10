@@ -54,7 +54,14 @@ export default function RBACDashboard() {
 					);
 				}
 
-				const isCurrentUserAdmin = myRoleData?.roles?.name === "admin";
+				// biome-ignore lint: Supabase join type inference issue
+				const roleData = myRoleData?.roles as
+					| { name: string; level: number }
+					| { name: string; level: number }[]
+					| undefined;
+				const isCurrentUserAdmin =
+					(Array.isArray(roleData) ? roleData[0]?.name : roleData?.name) ===
+					"admin";
 				setIsAdmin(isCurrentUserAdmin);
 
 				// Fetch roles
@@ -80,7 +87,14 @@ export default function RBACDashboard() {
 				}
 
 				if (urData) {
-					setUserRoles(urData as UserRole[]);
+					// Normalize Supabase join data (arrays to single objects)
+					const normalized = urData.map((item: any) => ({
+						user_id: item.user_id,
+						role_id: item.role_id,
+						users: Array.isArray(item.users) ? item.users[0] : item.users,
+						roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
+					}));
+					setUserRoles(normalized);
 				}
 			} catch (err: unknown) {
 				console.error("RBAC fetch error:", err);
@@ -128,7 +142,14 @@ export default function RBACDashboard() {
 				.select("user_id, role_id, users(name, email), roles(*)");
 
 			if (urData) {
-				setUserRoles(urData as UserRole[]);
+				// Normalize Supabase join data (arrays to single objects)
+				const normalized = urData.map((item: any) => ({
+					user_id: item.user_id,
+					role_id: item.role_id,
+					users: Array.isArray(item.users) ? item.users[0] : item.users,
+					roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
+				}));
+				setUserRoles(normalized);
 			}
 
 			setChangingRole(null);
@@ -174,7 +195,10 @@ export default function RBACDashboard() {
 				)}
 
 				<Link href="/">
-					<button className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors">
+					<button
+						type="button"
+						className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+					>
 						Return Home
 					</button>
 				</Link>
@@ -299,6 +323,7 @@ export default function RBACDashboard() {
 													changingRole === ur.user_id ? (
 														<div className="flex gap-2 justify-end">
 															<button
+																type="button"
 																onClick={() =>
 																	handleChangeRole(
 																		ur.user_id,
@@ -310,6 +335,7 @@ export default function RBACDashboard() {
 																Save
 															</button>
 															<button
+																type="button"
 																onClick={() => {
 																	setChangingRole(null);
 																	setSelectedNewRole("");
@@ -321,6 +347,7 @@ export default function RBACDashboard() {
 														</div>
 													) : (
 														<button
+															type="button"
 															onClick={() => {
 																setChangingRole(ur.user_id);
 																setSelectedNewRole(ur.role_id);

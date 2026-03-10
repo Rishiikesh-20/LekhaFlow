@@ -3,7 +3,6 @@
 import { Bell, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../lib/supabase.client";
-import { useCanvasStore } from "../../store/canvas-store";
 
 interface Notification {
 	id: string;
@@ -20,7 +19,14 @@ export function NotificationBell() {
 	const [notifications, setNotifications] = useState<Notification[]>([]);
 	const [isOpen, setIsOpen] = useState(false);
 	const dropdownRef = useRef<HTMLDivElement>(null);
-	const myId = useCanvasStore((state) => state.myIdentity?.id);
+	const [myId, setMyId] = useState<string | null>(null);
+
+	// Get current user ID
+	useEffect(() => {
+		supabase.auth.getSession().then(({ data }) => {
+			if (data.session) setMyId(data.session.user.id);
+		});
+	}, []);
 
 	// Load & Subscribe
 	useEffect(() => {
@@ -108,6 +114,7 @@ export function NotificationBell() {
 	return (
 		<div className="relative" ref={dropdownRef}>
 			<button
+				type="button"
 				onClick={() => setIsOpen(!isOpen)}
 				className="w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center cursor-pointer transition-all hover:bg-gray-50 relative"
 			>
@@ -125,6 +132,7 @@ export function NotificationBell() {
 						</h3>
 						{unreadCount > 0 && (
 							<button
+								type="button"
 								onClick={markAllAsRead}
 								className="text-[11px] font-semibold text-violet-600 hover:text-violet-700 cursor-pointer bg-transparent border-none flex items-center gap-1"
 							>
@@ -140,10 +148,11 @@ export function NotificationBell() {
 							</div>
 						) : (
 							notifications.map((n) => (
-								<div
+								<button
+									type="button"
 									key={n.id}
 									onClick={() => markAsRead(n.id)}
-									className={`p-3 border-b border-gray-50 cursor-pointer transition-colors ${!n.is_read ? "bg-violet-50/30" : "hover:bg-gray-50"}`}
+									className={`p-3 border-b border-gray-50 cursor-pointer transition-colors ${!n.is_read ? "bg-violet-50/30" : "hover:bg-gray-50"} w-full text-left bg-transparent`}
 								>
 									<div className="flex gap-2.5">
 										<div
@@ -160,7 +169,7 @@ export function NotificationBell() {
 											</p>
 										</div>
 									</div>
-								</div>
+								</button>
 							))
 						)}
 					</div>

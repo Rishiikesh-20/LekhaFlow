@@ -13,8 +13,8 @@ import {
 	ChevronRight,
 	Lock,
 	Palette,
-	Unlock,
 	Plus,
+	Unlock,
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";

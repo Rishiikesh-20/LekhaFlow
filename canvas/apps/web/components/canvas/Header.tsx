@@ -465,6 +465,7 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 					{/* Role Selection */}
 					<div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex gap-3">
 						<button
+							type="button"
 							onClick={() => setShareRole("viewer")}
 							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "viewer" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
 						>
