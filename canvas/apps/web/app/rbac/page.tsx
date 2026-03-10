@@ -54,7 +54,6 @@ export default function RBACDashboard() {
 					);
 				}
 
-				// biome-ignore lint: Supabase join type inference issue
 				const roleData = myRoleData?.roles as
 					| { name: string; level: number }
 					| { name: string; level: number }[]
@@ -88,12 +87,23 @@ export default function RBACDashboard() {
 
 				if (urData) {
 					// Normalize Supabase join data (arrays to single objects)
-					const normalized = urData.map((item: any) => ({
-						user_id: item.user_id,
-						role_id: item.role_id,
-						users: Array.isArray(item.users) ? item.users[0] : item.users,
-						roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
-					}));
+					const normalized = urData
+						.map(
+							(item: {
+								user_id: string;
+								role_id: string;
+								users:
+									| { name: string; email: string }
+									| { name: string; email: string }[];
+								roles: Role | Role[];
+							}) => ({
+								user_id: item.user_id,
+								role_id: item.role_id,
+								users: Array.isArray(item.users) ? item.users[0] : item.users,
+								roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
+							}),
+						)
+						.filter((item): item is UserRole => item.users !== undefined);
 					setUserRoles(normalized);
 				}
 			} catch (err: unknown) {
@@ -143,12 +153,23 @@ export default function RBACDashboard() {
 
 			if (urData) {
 				// Normalize Supabase join data (arrays to single objects)
-				const normalized = urData.map((item: any) => ({
-					user_id: item.user_id,
-					role_id: item.role_id,
-					users: Array.isArray(item.users) ? item.users[0] : item.users,
-					roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
-				}));
+				const normalized = urData
+					.map(
+						(item: {
+							user_id: string;
+							role_id: string;
+							users:
+								| { name: string; email: string }
+								| { name: string; email: string }[];
+							roles: Role | Role[];
+						}) => ({
+							user_id: item.user_id,
+							role_id: item.role_id,
+							users: Array.isArray(item.users) ? item.users[0] : item.users,
+							roles: Array.isArray(item.roles) ? item.roles[0] : item.roles,
+						}),
+					)
+					.filter((item): item is UserRole => item.users !== undefined);
 				setUserRoles(normalized);
 			}
 

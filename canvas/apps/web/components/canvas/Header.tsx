@@ -482,6 +482,7 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 							</span>
 						</button>
 						<button
+							type="button"
 							onClick={() => setShareRole("editor")}
 							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "editor" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
 						>
@@ -892,7 +893,8 @@ export function HeaderRight() {
 						<Users size={14} className="text-gray-400" />
 						<div className="flex -space-x-2">
 							{collaborators.slice(0, 3).map((collab, _index) => (
-								<div
+								<button
+									type="button"
 									key={collab.id}
 									onClick={() => {
 										if (collab.viewport) {
@@ -910,7 +912,7 @@ export function HeaderRight() {
 									title={`Click to follow ${collab.name}`}
 								>
 									{getInitials(collab.name)}
-								</div>
+								</button>
 							))}
 							{collaborators.length > 3 && (
 								<div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-semibold text-gray-600 border-2 border-white">
