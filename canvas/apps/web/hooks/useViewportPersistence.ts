@@ -100,6 +100,33 @@ export function useViewportPersistence(roomId: string): void {
 	useEffect(() => {
 		if (!roomId || hydratedRef.current) return;
 
+		// Priority 1: Check URL query params (from share link with viewport)
+		if (typeof window !== "undefined") {
+			const params = new URLSearchParams(window.location.search);
+			const urlX = params.get("x");
+			const urlY = params.get("y");
+			const urlZ = params.get("z");
+
+			if (urlX !== null && urlY !== null) {
+				const x = parseFloat(urlX);
+				const y = parseFloat(urlY);
+				const z = urlZ ? parseFloat(urlZ) : 1;
+
+				if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) {
+					setScroll(x, y);
+					setZoom(z);
+					console.log(
+						"[Viewport] Hydrated from share URL:",
+						`scroll=(${x}, ${y})`,
+						`zoom=${z}`,
+					);
+					hydratedRef.current = true;
+					return;
+				}
+			}
+		}
+
+		// Priority 2: Fall back to localStorage
 		const saved = loadViewport(roomId);
 		if (saved) {
 			setScroll(saved.scrollX, saved.scrollY);

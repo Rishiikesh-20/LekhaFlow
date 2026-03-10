@@ -1,12 +1,14 @@
 "use client";
 
-import { File, Grid, List, Plus, Share2, Trash2 } from "lucide-react";
+import { Archive, File, Files, Grid, List, Plus, Trash2 } from "lucide-react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase.client";
 import { Button } from "./ui/Button";
 
-const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+const HTTP_URL =
+	process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 interface Canvas {
 	id: string;
@@ -14,13 +16,15 @@ interface Canvas {
 	updated_at: string;
 	thumbnail_url: string | null;
 	owner_id: string;
+	is_archived?: boolean;
 }
 
 export function Dashboard() {
 	const [canvases, setCanvases] = useState<Canvas[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-	const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+	const [showArchived, setShowArchived] = useState(false);
+	const [_currentUserId, setCurrentUserId] = useState<string | null>(null);
 	const router = useRouter();
 
 	useEffect(() => {
@@ -91,6 +95,90 @@ export function Dashboard() {
 		}
 	};
 
+	const handleDuplicate = async (canvas: Canvas, e: React.MouseEvent) => {
+		e.stopPropagation();
+
+		const {
+			data: { session },
+		} = await supabase.auth.getSession();
+		if (!session) return;
+
+		// Optimistic UI: Add a "ghost" copy to the list
+		const tempId = `temp-${Date.now()}`;
+		const optimisticCopy: Canvas = {
+			...canvas,
+			id: tempId,
+			name: `${canvas.name} (Copy)`,
+			updated_at: new Date().toISOString(),
+		};
+
+		setCanvases((prev) => [optimisticCopy, ...prev]);
+
+		try {
+			const res = await fetch(
+				`${HTTP_URL}/api/v1/canvas/${canvas.id}/duplicate`,
+				{
+					method: "POST",
+					headers: {
+						Authorization: `Bearer ${session.access_token}`,
+						"Content-Type": "application/json",
+					},
+				},
+			);
+
+			if (res.ok) {
+				const json = await res.json();
+				const newCanvas = json.data.canvas;
+
+				// Replace ghost with real data
+				setCanvases((prev) =>
+					prev.map((c) => (c.id === tempId ? newCanvas : c)),
+				);
+			} else {
+				throw new Error("Failed to duplicate");
+			}
+		} catch (e) {
+			console.error(e);
+			// Rollback on error
+			setCanvases((prev) => prev.filter((c) => c.id !== tempId));
+			alert("Failed to duplicate canvas. Please try again.");
+		}
+	};
+
+	const handleArchive = async (
+		id: string,
+		isArchived: boolean,
+		e: React.MouseEvent,
+	) => {
+		e.stopPropagation();
+
+		const {
+			data: { session },
+		} = await supabase.auth.getSession();
+		if (!session) return;
+
+		try {
+			const res = await fetch(`${HTTP_URL}/api/v1/canvas/${id}/archive`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${session.access_token}`,
+				},
+				body: JSON.stringify({ isArchived }),
+			});
+
+			if (res.ok) {
+				setCanvases((prev) =>
+					prev.map((c) =>
+						c.id === id ? { ...c, is_archived: isArchived } : c,
+					),
+				);
+			}
+		} catch (e) {
+			console.error(e);
+		}
+	};
+
 	const formatDate = (dateStr: string) => {
 		const date = new Date(dateStr);
 		const now = new Date();
@@ -111,89 +199,120 @@ export function Dashboard() {
 		);
 	}
 
-	if (canvases.length === 0) {
-		return (
-			<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-2xl bg-white">
-				<div className="w-16 h-16 bg-violet-100 rounded-2xl flex items-center justify-center mb-6">
-					<File className="w-8 h-8 text-violet-500" />
-				</div>
-				<h3 className="text-lg font-medium text-gray-900 font-heading mb-2">
-					No canvases yet
-				</h3>
-				<p className="text-gray-500 text-center max-w-sm mb-6">
-					Create your first canvas to start brainstorming with your team.
-				</p>
-				<Button
-					onClick={async () => {
-						const {
-							data: { session },
-						} = await supabase.auth.getSession();
-						if (!session) {
-							router.push("/login");
-							return;
-						}
-						try {
-							const res = await fetch(
-								`${HTTP_URL}/api/v1/canvas/create-canvas`,
-								{
-									method: "POST",
-									headers: {
-										"Content-Type": "application/json",
-										Authorization: `Bearer ${session.access_token}`,
-									},
-									body: JSON.stringify({ name: "Untitled Canvas" }),
-								},
-							);
-							if (res.ok) {
-								const data = await res.json();
-								router.push(`/canvas/${data.data.roomId}`);
-							}
-						} catch (e) {
-							console.error(e);
-						}
-					}}
-				>
-					<Plus className="w-4 h-4 mr-2" />
-					Create Canvas
-				</Button>
-			</div>
-		);
-	}
+	const filteredCanvases = canvases.filter((c) =>
+		showArchived ? c.is_archived === true : !c.is_archived,
+	);
 
 	return (
-		<div className="space-y-4">
+		<div className="space-y-6">
 			{/* Toolbar */}
-			<div className="flex items-center justify-end">
-				<div className="flex bg-gray-100 border border-gray-200 rounded-lg p-0.5">
+			<div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+				<div className="flex bg-gray-100 border border-gray-200 rounded-xl p-1">
 					<button
 						type="button"
-						onClick={() => setViewMode("grid")}
-						className={`p-2 rounded-md transition-colors ${
-							viewMode === "grid"
+						onClick={() => setShowArchived(false)}
+						className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+							!showArchived
 								? "bg-white text-violet-600 shadow-sm"
 								: "text-gray-500 hover:text-gray-700"
 						}`}
 					>
-						<Grid size={16} />
+						Active
 					</button>
 					<button
 						type="button"
-						onClick={() => setViewMode("list")}
-						className={`p-2 rounded-md transition-colors ${
-							viewMode === "list"
+						onClick={() => setShowArchived(true)}
+						className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+							showArchived
 								? "bg-white text-violet-600 shadow-sm"
 								: "text-gray-500 hover:text-gray-700"
 						}`}
 					>
-						<List size={16} />
+						Archived
 					</button>
+				</div>
+
+				<div className="flex items-center gap-3">
+					<div className="flex bg-gray-100 border border-gray-200 rounded-lg p-0.5">
+						<button
+							type="button"
+							onClick={() => setViewMode("grid")}
+							className={`p-2 rounded-md transition-colors ${
+								viewMode === "grid"
+									? "bg-white text-violet-600 shadow-sm"
+									: "text-gray-500 hover:text-gray-700"
+							}`}
+						>
+							<Grid size={16} />
+						</button>
+						<button
+							type="button"
+							onClick={() => setViewMode("list")}
+							className={`p-2 rounded-md transition-colors ${
+								viewMode === "list"
+									? "bg-white text-violet-600 shadow-sm"
+									: "text-gray-500 hover:text-gray-700"
+							}`}
+						>
+							<List size={16} />
+						</button>
+					</div>
+
+					{!showArchived && (
+						<Button
+							onClick={async () => {
+								const {
+									data: { session },
+								} = await supabase.auth.getSession();
+								if (!session) {
+									router.push("/login");
+									return;
+								}
+								try {
+									const res = await fetch(
+										`${HTTP_URL}/api/v1/canvas/create-canvas`,
+										{
+											method: "POST",
+											headers: {
+												"Content-Type": "application/json",
+												Authorization: `Bearer ${session.access_token}`,
+											},
+											body: JSON.stringify({ name: "Untitled Canvas" }),
+										},
+									);
+									if (res.ok) {
+										const data = await res.json();
+										router.push(`/canvas/${data.data.roomId}`);
+									}
+								} catch (e) {
+									console.error(e);
+								}
+							}}
+						>
+							<Plus className="w-4 h-4 mr-2" />
+							New Canvas
+						</Button>
+					)}
 				</div>
 			</div>
 
-			{/* Grid View */}
-			{viewMode === "grid" ? (
-				<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-					{canvases.map((canvas) => (
+			{filteredCanvases.length === 0 ? (
+				<div className="flex flex-col items-center justify-center py-20 px-6 border-2 border-dashed border-gray-300 rounded-3xl bg-white">
+					<div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-6 text-gray-400">
+						{showArchived ? <Archive size={32} /> : <File size={32} />}
+					</div>
+					<h3 className="text-xl font-semibold text-gray-900 mb-2">
+						{showArchived ? "No archived canvases" : "No canvases yet"}
+					</h3>
+					<p className="text-gray-500 text-center max-w-sm">
+						{showArchived
+							? "Your archived canvases will appear here. Archiving helps you stay organized."
+							: "Create your first canvas to start brainstorming."}
+					</p>
+				</div>
+			) : viewMode === "grid" ? (
+				<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+					{filteredCanvases.map((canvas) => (
 						<div
 							key={canvas.id}
 							role="button"
@@ -205,75 +324,92 @@ export function Dashboard() {
 									router.push(`/canvas/${canvas.id}`);
 								}
 							}}
-							className="group relative flex flex-col bg-white border border-gray-200 rounded-xl overflow-hidden hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100 transition-all cursor-pointer"
+							className="group relative flex flex-col bg-white border border-gray-200 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-xl hover:shadow-violet-100 transition-all cursor-pointer"
 						>
-							{/* Thumbnail */}
+							{/* Thumbnail Section */}
 							<div className="aspect-[4/3] bg-gray-50 relative overflow-hidden">
 								{canvas.thumbnail_url ? (
-									/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */
-									<img
+									<Image
 										src={canvas.thumbnail_url}
-										alt={canvas.name || "Canvas preview"}
-										className="w-full h-full object-cover"
-										loading="lazy"
+										alt={canvas.name || "Thumbnail"}
+										className="object-cover"
+										fill
 									/>
 								) : (
-									<>
-										{/* Grid pattern fallback */}
+									<div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-300">
 										<div
-											className="absolute inset-0 opacity-[0.4]"
+											className="absolute inset-0 opacity-[0.3]"
 											style={{
 												backgroundImage:
 													"radial-gradient(circle, #d1d5db 1px, transparent 1px)",
 												backgroundSize: "16px 16px",
 											}}
 										/>
-										<div className="w-full h-full flex items-center justify-center">
-											<File className="w-10 h-10 text-gray-300" />
-										</div>
-									</>
+										<File size={32} />
+									</div>
 								)}
 
-								{/* Hover overlay */}
-								<div className="absolute inset-0 bg-violet-600/0 group-hover:bg-violet-600/5 transition-colors" />
+								{/* Hover Overlay */}
+								<div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+									<Button
+										size="sm"
+										className="bg-white text-gray-900 hover:bg-gray-100 border-none px-4"
+										onClick={(e) => {
+											e.stopPropagation();
+											router.push(`/canvas/${canvas.id}`);
+										}}
+									>
+										Open
+									</Button>
+									<Button
+										size="sm"
+										variant="primary"
+										className="bg-violet-600 border-none"
+										onClick={(e) => handleDuplicate(canvas, e)}
+									>
+										<Files size={14} />
+									</Button>
+								</div>
 							</div>
 
-							{/* Info */}
-							<div className="p-3 flex items-center justify-between border-t border-gray-100">
+							{/* Info Section */}
+							<div className="p-4 flex items-center justify-between border-t border-gray-100">
 								<div className="min-w-0 flex-1">
-									<div className="flex items-center gap-1.5">
-										<h3 className="font-medium text-sm text-gray-900 truncate">
-											{canvas.name || "Untitled"}
-										</h3>
-										{currentUserId && canvas.owner_id !== currentUserId && (
-											<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-												<Share2 size={10} />
-												Shared
-											</span>
-										)}
-									</div>
-									<p className="text-xs text-gray-500 mt-0.5">
+									<h3 className="font-semibold text-gray-900 truncate">
+										{canvas.name || "Untitled"}
+									</h3>
+									<p className="text-xs text-gray-500 mt-1">
 										{formatDate(canvas.updated_at)}
 									</p>
 								</div>
 
-								{(!currentUserId || canvas.owner_id === currentUserId) && (
+								<div className="flex items-center gap-1">
+									<button
+										type="button"
+										onClick={(e) =>
+											handleArchive(canvas.id, !canvas.is_archived, e)
+										}
+										className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+										title={canvas.is_archived ? "Unarchive" : "Archive"}
+									>
+										<Archive size={16} />
+									</button>
 									<button
 										type="button"
 										onClick={(e) => handleDelete(canvas.id, e)}
-										className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+										className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+										title="Delete"
 									>
-										<Trash2 size={14} />
+										<Trash2 size={16} />
 									</button>
-								)}
+								</div>
 							</div>
 						</div>
 					))}
 				</div>
 			) : (
-				/* List View */
-				<div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
-					{canvases.map((canvas) => (
+				<div className="bg-white border border-gray-200 rounded-2xl overflow-hidden divide-y divide-gray-100">
+					{filteredCanvases.map((canvas) => (
 						<div
 							key={canvas.id}
 							role="button"
@@ -285,52 +421,55 @@ export function Dashboard() {
 									router.push(`/canvas/${canvas.id}`);
 								}
 							}}
-							className="flex items-center justify-between p-4 hover:bg-violet-50/50 cursor-pointer group transition-colors"
+							className="flex items-center justify-between p-4 hover:bg-violet-50/50 cursor-pointer transition-colors group"
 						>
 							<div className="flex items-center gap-4 min-w-0">
-								<div className="h-10 w-14 bg-gray-50 rounded-lg flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-200">
+								<div className="h-12 w-16 bg-gray-100 relative rounded-lg overflow-hidden border border-gray-200 flex-shrink-0 flex items-center justify-center">
 									{canvas.thumbnail_url ? (
-										/* biome-ignore lint/performance/noImgElement: Dynamic canvas thumbnails from external URLs */ <img
+										<Image
 											src={canvas.thumbnail_url}
-											alt={canvas.name || "Canvas preview"}
-											className="w-full h-full object-cover"
-											loading="lazy"
+											alt={canvas.name || "Thumbnail"}
+											className="object-cover"
+											fill
 										/>
 									) : (
-										<File size={18} className="text-violet-500" />
+										<File size={20} className="text-gray-400" />
 									)}
 								</div>
 								<div className="min-w-0">
-									<div className="flex items-center gap-1.5">
-										<h3 className="font-medium text-gray-900 truncate">
-											{canvas.name || "Untitled"}
-										</h3>
-										{currentUserId && canvas.owner_id !== currentUserId && (
-											<span className="flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600 bg-violet-50 rounded-full">
-												<Share2 size={10} />
-												Shared
-											</span>
-										)}
-									</div>
+									<h3 className="font-semibold text-gray-900 truncate">
+										{canvas.name}
+									</h3>
 									<p className="text-xs text-gray-500">
 										Edited {formatDate(canvas.updated_at)}
 									</p>
 								</div>
 							</div>
-
 							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-								<Button variant="secondary" size="sm">
-									Open
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={(e) => handleDuplicate(canvas, e)}
+								>
+									<Files size={14} className="mr-2" />
+									Duplicate
 								</Button>
-								{(!currentUserId || canvas.owner_id === currentUserId) && (
-									<button
-										type="button"
-										onClick={(e) => handleDelete(canvas.id, e)}
-										className="p-2 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
-									>
-										<Trash2 size={14} />
-									</button>
-								)}
+								<button
+									type="button"
+									onClick={(e) =>
+										handleArchive(canvas.id, !canvas.is_archived, e)
+									}
+									className="p-2 text-gray-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg"
+								>
+									<Archive size={18} />
+								</button>
+								<button
+									type="button"
+									onClick={(e) => handleDelete(canvas.id, e)}
+									className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+								>
+									<Trash2 size={18} />
+								</button>
 							</div>
 						</div>
 					))}

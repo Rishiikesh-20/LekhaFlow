@@ -51,10 +51,13 @@ import type {
 	LineElement,
 	Point,
 	TextElement,
+	TextRun,
 	Tool,
 } from "@repo/common";
 import type Konva from "konva";
 import type { KonvaEventObject } from "konva/lib/Node";
+import { Archive as LucideArchive } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -112,6 +115,8 @@ import {
 } from "../lib/rough-renderer";
 import { outlineToSvgPath } from "../lib/stroke-utils";
 import { supabase } from "../lib/supabase.client";
+import { buildKonvaFontStyle, layoutRuns } from "../lib/text-runs";
+import { generateThumbnailBlob } from "../lib/thumbnail";
 import {
 	useCanvasStore,
 	useCollaboratorsArray,
@@ -130,6 +135,7 @@ import { DocumentationModal } from "./canvas/DocumentationModal";
 import { EmptyCanvasHero } from "./canvas/EmptyCanvasHero";
 import { ExportModal } from "./canvas/ExportModal";
 import GhostLayer from "./canvas/GhostLayer";
+import { GridLayer } from "./canvas/GridLayer";
 import {
 	type GroupHandlePosition,
 	GroupTransformHandles,
@@ -138,7 +144,9 @@ import { HeaderLeft, HeaderRight } from "./canvas/Header";
 import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
+import { RichTextEditor } from "./canvas/RichTextEditor";
 import { RotationControls } from "./canvas/RotationControls";
+import { TextFormattingToolbar } from "./canvas/TextFormattingToolbar";
 // Import components directly to avoid circular dependencies through barrel exports
 import { Toolbar } from "./canvas/Toolbar";
 import { VersionsPanel } from "./canvas/VersionsPanel";
@@ -966,6 +974,43 @@ function renderElement(
 
 		case "text": {
 			const textElement = element as TextElement;
+
+			// Rich-text rendering when element has runs
+			if (textElement.runs && textElement.runs.length > 0) {
+				const layout = layoutRuns(
+					textElement.runs,
+					textElement.width || undefined,
+				);
+				return (
+					<Group
+						key={element.id}
+						{...commonProps}
+						{...selectionProps}
+						x={element.x + element.width / 2}
+						y={element.y + element.height / 2}
+						offsetX={element.width / 2}
+						offsetY={element.height / 2}
+					>
+						{layout.lines.flatMap((line, li) =>
+							line.segments.map((seg, si) => (
+								<Text
+									key={`${li}-${si}`}
+									x={seg.x}
+									y={seg.y}
+									text={seg.text}
+									fontSize={seg.fontSize}
+									fontFamily={seg.fontFamily}
+									fontStyle={buildKonvaFontStyle(seg.bold, seg.italic)}
+									textDecoration={seg.underline ? "underline" : ""}
+									fill={element.strokeColor}
+								/>
+							)),
+						)}
+					</Group>
+				);
+			}
+
+			// Legacy plain-text rendering
 			return (
 				<Text
 					key={element.id}
@@ -995,6 +1040,7 @@ function renderElement(
 // ============================================================================
 
 export function Canvas({ roomId, token }: CanvasProps) {
+	const router = useRouter();
 	// ─────────────────────────────────────────────────────────────────
 	// REFS
 	// ─────────────────────────────────────────────────────────────────
@@ -1020,6 +1066,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		deleteElements,
 		updateCursor,
 		updateSelection,
+		updateEditingElement,
 		restoreVersion,
 		undo,
 		redo,
@@ -1083,6 +1130,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setOpacity,
 		setBrushType,
 		batchUpdateElements: storeBatchUpdate,
+		activeTextStyle,
+		isTextEditing,
+		setTextEditing,
+		setActiveTextStyle,
+		canvasBackgroundColor,
+		activeGridMode,
 	} = useCanvasStore();
 
 	// Elements and collaborators from store
@@ -1241,9 +1294,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		initialWidth?: number;
 		initialHeight?: number;
 		elementId?: string; // If set, editing existing element
+		initialRuns?: TextRun[];
 	} | null>(null);
-	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const textareaJustOpenedRef = useRef<boolean>(false);
 
 	// Freedraw points accumulator (persistent strokes)
 	const freedrawPointsRef = useRef<Array<[number, number]>>([]);
@@ -1444,15 +1496,21 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		});
 	}, [addElement]);
 
+	const { updateSettings } = useYjsSync(roomId, token ?? null);
+
 	// ─────────────────────────────────────────────────────────────────
 	// AUTO-CAPTURE THUMBNAIL for dashboard preview
 	// Debounced: captures 2s after any element change
 	// ─────────────────────────────────────────────────────────────────
 
 	const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+	const HTTP_URL =
+		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
 	useEffect(() => {
+		// Read elements so the hook runs on elements change without lint failing
+		const _ = elements;
+
 		// Clear previous timer on every element change
 		if (thumbnailTimerRef.current) {
 			clearTimeout(thumbnailTimerRef.current);
@@ -1462,49 +1520,53 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		thumbnailTimerRef.current = setTimeout(async () => {
 			const stage = stageRef.current;
 			if (!stage) return;
-
 			const layer = stage.getLayers()[0];
-			if (!layer || layer.children.length === 0) return;
+			if (!layer || layer.children.length === 0 || !("children" in layer))
+				return;
 
 			try {
-				const KonvaLib = (await import("konva")).default;
+				const blob = await generateThumbnailBlob(
+					stage as unknown as import("konva/lib/Stage").Stage,
+					canvasBackgroundColor || "#ffffff",
+				);
+				if (!blob) return;
 
-				// Add temp background
-				const bgRect = new KonvaLib.Rect({
-					x: -stage.x() / stage.scaleX(),
-					y: -stage.y() / stage.scaleY(),
-					width: stage.width() / stage.scaleX(),
-					height: stage.height() / stage.scaleY(),
-					fill: "#fafafa",
+				// Convert Blob to Base64 for the transfer (since we don't have multer yet)
+				const reader = new FileReader();
+				const base64Promise = new Promise<string>((resolve) => {
+					reader.onloadend = () => resolve(reader.result as string);
 				});
-				layer.add(bgRect);
-				bgRect.moveToBottom();
-				layer.draw();
+				reader.readAsDataURL(blob);
+				const base64Data = await base64Promise;
 
-				const dataURL = stage.toDataURL({
-					pixelRatio: 0.2,
-					mimeType: "image/png",
-				});
-
-				// Cleanup
-				bgRect.destroy();
-				layer.draw();
-
-				// Upload
+				// Upload to Backend (which handles Supabase Storage)
 				const {
 					data: { session },
 				} = await supabase.auth.getSession();
 				if (!session) return;
 
-				await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}`, {
-					method: "PUT",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${session.access_token}`,
+				const res = await fetch(
+					`${HTTP_URL}/api/v1/canvas/${roomId}/thumbnail`,
+					{
+						method: "PUT",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: `Bearer ${session.access_token}`,
+						},
+						body: JSON.stringify({ thumbnail_url: base64Data }),
 					},
-					body: JSON.stringify({ thumbnail_url: dataURL }),
-				});
-			} catch {}
+				);
+
+				if (!res.ok) {
+					console.error(
+						"[Thumbnail] Upload HTTP Error:",
+						res.status,
+						await res.text(),
+					);
+				}
+			} catch (err) {
+				console.error("[Thumbnail] Update failed:", err);
+			}
 		}, 2000);
 
 		return () => {
@@ -1513,7 +1575,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [roomId, HTTP_URL]);
+	}, [roomId, HTTP_URL, elements, canvasBackgroundColor]);
 
 	// Reconnect function
 	const handleReconnect = useCallback(() => {
@@ -1835,85 +1897,73 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		};
 	}, []);
 
-	// Auto-resize textarea when editing text
-	useEffect(() => {
-		if (editingText && textareaRef.current) {
-			const textarea = textareaRef.current;
-
-			// Mark that we just opened the textarea to prevent immediate blur
-			textareaJustOpenedRef.current = true;
-
-			// Use setTimeout to ensure focus happens after render
-			setTimeout(() => {
-				textarea.focus();
-				textarea.select();
-				// Allow blur events after a short delay
-				setTimeout(() => {
-					textareaJustOpenedRef.current = false;
-				}, 100);
-			}, 0);
-
-			// Auto-resize function
-			const resize = () => {
-				textarea.style.height = "auto";
-				textarea.style.height = `${textarea.scrollHeight}px`;
-			};
-
-			resize();
-			textarea.addEventListener("input", resize);
-
-			return () => {
-				textarea.removeEventListener("input", resize);
-			};
-		}
-	}, [editingText]);
-
 	/**
-	 * Complete text editing and create/update text element
+	 * Complete rich-text editing — create or update text element with runs.
 	 */
-	const handleCompleteText = useCallback(
-		(text: string) => {
-			if (editingText && text.trim()) {
-				// Get the textarea dimensions for the text box size
-				const textarea = textareaRef.current;
-				const width = textarea ? textarea.offsetWidth : 200;
-				const height = textarea ? textarea.offsetHeight : 40;
-
-				if (editingText.elementId) {
-					// Update existing text element
-					updateElement(editingText.elementId, {
-						text,
-						width: width / zoom,
-						height: height / zoom,
-					});
-				} else {
-					// Create new text element
-					const newText = createText(editingText.x, editingText.y, text, {
-						strokeColor: currentStrokeColor,
-						opacity: currentOpacity,
-						width: width / zoom,
-						height: height / zoom,
-						zIndex: getNextZIndex(),
-					});
-					addElement(newText);
+	const handleCompleteRichText = useCallback(
+		(
+			runs: TextRun[],
+			plainText: string,
+			measuredWidth: number,
+			measuredHeight: number,
+		) => {
+			if (editingText) {
+				if (plainText.trim()) {
+					if (editingText.elementId) {
+						// Update existing text element
+						updateElement(editingText.elementId, {
+							text: plainText,
+							width: measuredWidth,
+							height: measuredHeight,
+							runs,
+						} as Partial<import("@repo/common").CanvasElement>);
+					} else {
+						// Create new text element
+						const newText = createText(
+							editingText.x,
+							editingText.y,
+							plainText,
+							{
+								strokeColor: currentStrokeColor,
+								opacity: currentOpacity,
+								fontSize: activeTextStyle.fontSize,
+								width: measuredWidth,
+								height: measuredHeight,
+								zIndex: getNextZIndex(),
+								runs,
+							},
+						);
+						addElement(newText);
+					}
+				} else if (editingText.elementId) {
+					// Empty text on existing element — delete it
+					deleteElements([editingText.elementId]);
 				}
-			} else if (editingText?.elementId && !text.trim()) {
-				// If editing existing element and text is empty, delete the element
-				deleteElements([editingText.elementId]);
 			}
 			setEditingText(null);
+			setTextEditing(false);
+			updateEditingElement(null);
 		},
 		[
 			editingText,
 			currentStrokeColor,
 			currentOpacity,
+			activeTextStyle,
 			addElement,
 			updateElement,
 			deleteElements,
-			zoom,
 			getNextZIndex,
+			setTextEditing,
+			updateEditingElement,
 		],
 	);
+
+	/** Cancel text editing without creating an element. */
+	const handleCancelText = useCallback(() => {
+		setEditingText(null);
+		setTextEditing(false);
+		updateEditingElement(null);
+	}, [setTextEditing, updateEditingElement]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// COPY / PASTE / LAYER HANDLERS
@@ -2095,6 +2145,31 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		[isReadOnly, selectedElementIds, elements],
 	);
 
+	const [isArchived, setIsArchived] = useState(false);
+
+	// Fetch canvas metadata
+	useEffect(() => {
+		const fetchMetadata = async () => {
+			if (!token) return;
+			try {
+				const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}`, {
+					headers: { Authorization: `Bearer ${token}` },
+				});
+				if (res.ok) {
+					const json = await res.json();
+					const canvas = json.data.canvas;
+					setIsArchived(canvas.is_archived);
+					if (canvas.is_archived) {
+						setReadOnly(true);
+					}
+				}
+			} catch (e) {
+				console.error("Failed to fetch canvas metadata:", e);
+			}
+		};
+		fetchMetadata();
+	}, [roomId, token, HTTP_URL, setReadOnly]);
+
 	/**
 	 * Close context menu
 	 */
@@ -2191,22 +2266,26 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			// Ignore if typing in input
+			// Ignore if typing in input or rich text editor
 			if (
 				e.target instanceof HTMLInputElement ||
-				e.target instanceof HTMLTextAreaElement
+				e.target instanceof HTMLTextAreaElement ||
+				(e.target instanceof HTMLElement &&
+					e.target.hasAttribute("data-rich-text-editor"))
 			) {
 				return;
 			}
 
-			// Lock toggle: L key (works regardless of read-only state)
+			// Lock toggle: L key (works regardless of read-only state unless archived)
 			if (
 				!e.ctrlKey &&
 				!e.metaKey &&
 				!e.altKey &&
 				e.key.toLowerCase() === "l"
 			) {
-				setReadOnly(!isReadOnly);
+				if (!isArchived) {
+					setReadOnly(!isReadOnly);
+				}
 				return;
 			}
 
@@ -2254,7 +2333,22 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							initialWidth: textElement.width,
 							initialHeight: textElement.height,
 							elementId: textElement.id,
+							initialRuns: textElement.runs,
 						});
+						if (textElement.runs?.length) {
+							const r = textElement.runs[0];
+							setActiveTextStyle({
+								fontFamily: r?.fontFamily ?? "Arial",
+								fontSize: r?.fontSize ?? textElement.fontSize,
+								bold: r?.bold ?? false,
+								italic: r?.italic ?? false,
+								underline: r?.underline ?? false,
+							});
+						} else {
+							setActiveTextStyle({ fontSize: textElement.fontSize });
+						}
+						setTextEditing(true, textElement.id);
+						updateEditingElement(textElement.id);
 						return;
 					}
 				}
@@ -2405,9 +2499,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		handlePaste,
 		handleBringToFront,
 		handleSendToBack,
+		isArchived,
 		isReadOnly,
 		setReadOnly,
 		handleImportScene,
+		setActiveTextStyle,
+		setTextEditing,
+		updateEditingElement,
 		handleBeautify,
 	]);
 
@@ -2752,6 +2850,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						x: point.x,
 						y: point.y,
 					});
+					setTextEditing(true);
 					break;
 				}
 
@@ -2798,6 +2897,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			isReadOnly,
 			dimensions.width,
 			dimensions.height,
+			setTextEditing,
 		],
 	);
 
@@ -3250,10 +3350,32 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					initialWidth: textElement.width,
 					initialHeight: textElement.height,
 					elementId: textElement.id,
+					initialRuns: textElement.runs,
 				});
+				// Populate toolbar with element's current formatting
+				if (textElement.runs?.length) {
+					const r = textElement.runs[0];
+					setActiveTextStyle({
+						fontFamily: r?.fontFamily ?? "Arial",
+						fontSize: r?.fontSize ?? textElement.fontSize,
+						bold: r?.bold ?? false,
+						italic: r?.italic ?? false,
+						underline: r?.underline ?? false,
+					});
+				} else {
+					setActiveTextStyle({ fontSize: textElement.fontSize });
+				}
+				setTextEditing(true, textElement.id);
+				updateEditingElement(textElement.id);
 			}
 		},
-		[getCanvasPoint, elements],
+		[
+			getCanvasPoint,
+			elements,
+			setTextEditing,
+			setActiveTextStyle,
+			updateEditingElement,
+		],
 	);
 
 	/**
@@ -3877,22 +3999,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		// biome-ignore lint/a11y/noStaticElementInteractions: Context menu handler for canvas area
 		<div
 			ref={containerRef}
-			className="relative w-full h-full overflow-hidden"
-			style={{ backgroundColor: "var(--color-canvas)" }}
+			className="relative w-full h-full overflow-hidden transition-colors duration-300"
+			style={{ backgroundColor: canvasBackgroundColor }}
 			onContextMenu={handleContextMenu}
 		>
-			{/* Clean dot grid background - Excalidraw style */}
-			<div
-				className="absolute inset-0 pointer-events-none"
-				style={{
-					backgroundImage: `
-            radial-gradient(circle, #d4d4d4 1px, transparent 1px)
-          `,
-					backgroundSize: `${24 * zoom}px ${24 * zoom}px`,
-					backgroundPosition: `${scrollX}px ${scrollY}px`,
-				}}
-			/>
-
 			{/* UI Components */}
 			<HeaderLeft
 				onClearCanvas={handleClearCanvas}
@@ -3902,7 +4012,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			/>
 			<HeaderRight />
 			<Toolbar />
-			<PropertiesPanel />
+			{isTextEditing && <TextFormattingToolbar />}
+			<PropertiesPanel onUpdateSettings={updateSettings} />
 			<BeautifyButton
 				visible={showBeautifyButton}
 				onBeautify={handleBeautify}
@@ -3965,6 +4076,17 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				}}
 			>
 				<Layer>
+					{/* Grid Background Component (Synced Story 1.3.2) */}
+					<GridLayer
+						width={dimensions.width || window.innerWidth}
+						height={dimensions.height || window.innerHeight}
+						zoom={zoom}
+						scrollX={scrollX}
+						scrollY={scrollY}
+						mode={activeGridMode}
+						canvasBackgroundColor={canvasBackgroundColor}
+					/>
+
 					{/* Render visible elements (viewport-culled for performance) */}
 					{visibleElements.map((element) =>
 						renderElement(
@@ -4081,7 +4203,6 @@ export function Canvas({ roomId, token }: CanvasProps) {
 											/>
 										);
 									})}
-									{/* Group transformer with resize + rotate handles */}
 									{groupBounds && (
 										<GroupTransformHandles
 											x={groupBounds.x - 4}
@@ -4158,60 +4279,23 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				onSendToBack={handleSendToBack}
 			/>
 
-			{/* Text Editing Overlay */}
+			{/* Rich text editor — both new text and editing existing */}
 			{editingText && (
-				<div
-					style={{
-						position: "absolute",
-						left: `${editingText.x * zoom + scrollX}px`,
-						top: `${editingText.y * zoom + scrollY}px`,
-						zIndex: 1000,
-					}}
-				>
-					<textarea
-						ref={textareaRef}
-						defaultValue={editingText.initialText || ""}
-						style={{
-							fontSize: "16px",
-							fontFamily: "Arial",
-							color: currentStrokeColor,
-							background: "white",
-							border: "2px solid #6965db",
-							borderRadius: "4px",
-							padding: "8px",
-							minWidth: "100px",
-							minHeight: "40px",
-							width: editingText.initialWidth
-								? `${editingText.initialWidth * zoom}px`
-								: "200px",
-							height: editingText.initialHeight
-								? `${editingText.initialHeight * zoom}px`
-								: "auto",
-							resize: "both",
-							overflow: "auto",
-							outline: "none",
-						}}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								handleCompleteText(e.currentTarget.value);
-							} else if (e.key === "Escape") {
-								setEditingText(null);
-							}
-						}}
-						onBlur={(e) => {
-							// Ignore blur if textarea just opened (prevents immediate close)
-							if (textareaJustOpenedRef.current) {
-								return;
-							}
-							handleCompleteText(e.currentTarget.value);
-						}}
-					/>
-					{/* Resize hint */}
-					<div className="text-xs text-gray-400 mt-1">
-						Drag corners/edges to resize • Enter to save • Esc to cancel
-					</div>
-				</div>
+				<RichTextEditor
+					x={editingText.x}
+					y={editingText.y}
+					zoom={zoom}
+					scrollX={scrollX}
+					scrollY={scrollY}
+					strokeColor={currentStrokeColor}
+					initialRuns={editingText.initialRuns}
+					initialText={editingText.initialText}
+					elementId={editingText.elementId}
+					initialWidth={editingText.initialWidth}
+					initialHeight={editingText.initialHeight}
+					onComplete={handleCompleteRichText}
+					onCancel={handleCancelText}
+				/>
 			)}
 
 			{/* Export Modal */}
@@ -4232,6 +4316,23 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 			{/* Activity Log Sidebar */}
 			<ActivitySidebar />
+
+			{/* Archived Banner */}
+			{isArchived && (
+				<div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+					<div className="bg-orange-50 border border-orange-200 text-orange-700 px-6 py-2 rounded-full shadow-lg flex items-center gap-2 font-medium backdrop-blur-sm pointer-events-auto">
+						<LucideArchive size={16} />
+						<span>This canvas is archived and is in read-only mode</span>
+						<button
+							type="button"
+							onClick={() => router.push("/")}
+							className="ml-2 text-xs bg-orange-200 hover:bg-orange-300 px-2 py-0.5 rounded transition-colors"
+						>
+							Back to Dashboard
+						</button>
+					</div>
+				</div>
+			)}
 
 			{/* AI Chat Sidebar */}
 			<AiChatSidebar stageRef={stageRef} />

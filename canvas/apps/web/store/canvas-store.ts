@@ -42,11 +42,13 @@
  */
 
 import type {
+	ActiveTextStyle,
 	CanvasElement,
 	Collaborator,
 	FillStyle,
 	Point,
 	StrokeStyle,
+	TextRun,
 	Tool,
 } from "@repo/common";
 import { create } from "zustand";
@@ -123,6 +125,9 @@ interface CanvasState {
 	/** Whether the canvas is in read-only (locked) mode */
 	isReadOnly: boolean;
 
+	/** Whether the canvas is archived */
+	isArchived: boolean;
+
 	// ─────────────────────────────────────────────────────────────────
 	// TOOL STATE
 	// ─────────────────────────────────────────────────────────────────
@@ -156,6 +161,25 @@ interface CanvasState {
 
 	/** Sloppiness of the sketch effect (0 = clean, 3 = very rough) */
 	currentSloppiness: number;
+
+	// ─────────────────────────────────────────────────────────────────
+	// TEXT FORMATTING STATE
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Active text style for the toolbar (applied to new text or future selections) */
+	activeTextStyle: ActiveTextStyle;
+
+	/** Whether currently editing a text element */
+	isTextEditing: boolean;
+
+	/** ID of the text element being edited (null if creating new) */
+	editingTextElementId: string | null;
+
+	/** Monotonic sequence number for format commands dispatched by the toolbar */
+	_formatCommandSeq: number;
+
+	/** Style payload of the latest format command (null when idle) */
+	_formatCommandStyle: Partial<Omit<TextRun, "text">> | null;
 
 	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT STATE
@@ -243,6 +267,16 @@ interface CanvasState {
 
 	/** Map of element id → original element snapshot before preview */
 	aiPreviewOriginals: Map<string, CanvasElement>;
+
+	// ─────────────────────────────────────────────────────────────────
+	// CANVAS SETTINGS (Synced)
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Background color of the entire canvas */
+	canvasBackgroundColor: string;
+
+	/** Background grid mode (none, grid, dots) */
+	activeGridMode: "none" | "grid" | "dots";
 }
 
 /**
@@ -327,6 +361,19 @@ interface CanvasActions {
 	setSloppiness: (sloppiness: number) => void;
 
 	// ─────────────────────────────────────────────────────────────────
+	// TEXT FORMATTING ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Update active text style (partial merge) */
+	setActiveTextStyle: (style: Partial<ActiveTextStyle>) => void;
+
+	/** Dispatch a format command — updates activeTextStyle AND signals the editor */
+	dispatchFormatCommand: (style: Partial<Omit<TextRun, "text">>) => void;
+
+	/** Set text editing mode on/off */
+	setTextEditing: (isEditing: boolean, elementId?: string | null) => void;
+
+	// ─────────────────────────────────────────────────────────────────
 	// VIEWPORT ACTIONS
 	// ─────────────────────────────────────────────────────────────────
 
@@ -405,6 +452,9 @@ interface CanvasActions {
 	/** Toggle read-only (lock) mode */
 	setReadOnly: (isReadOnly: boolean) => void;
 
+	/** Set archived status */
+	setIsArchived: (isArchived: boolean) => void;
+
 	// ─────────────────────────────────────────────────────────────────
 	// ACTIVITY LOG ACTIONS
 	// ─────────────────────────────────────────────────────────────────
@@ -443,6 +493,16 @@ interface CanvasActions {
 
 	/** Clear AI preview state */
 	clearAiPreview: () => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// CANVAS SETTINGS ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Set the canvas background color */
+	setCanvasBackgroundColor: (color: string) => void;
+
+	/** Set the canvas grid mode */
+	setGridMode: (mode: "none" | "grid" | "dots") => void;
 }
 
 // ============================================================================
@@ -482,6 +542,7 @@ export const initialState: CanvasState = {
 
 	// Read-only mode
 	isReadOnly: false,
+	isArchived: false,
 
 	// Tool
 	activeTool: "selection",
@@ -494,6 +555,19 @@ export const initialState: CanvasState = {
 	currentBrushType: "pencil" as const,
 	currentRoughEnabled: false,
 	currentSloppiness: 1,
+
+	// Text formatting
+	activeTextStyle: {
+		fontFamily: "Arial",
+		fontSize: 20,
+		bold: false,
+		italic: false,
+		underline: false,
+	},
+	isTextEditing: false,
+	editingTextElementId: null,
+	_formatCommandSeq: 0,
+	_formatCommandStyle: null,
 
 	// Viewport
 	scrollX: 0,
@@ -529,6 +603,10 @@ export const initialState: CanvasState = {
 	isAiPreviewActive: false,
 	aiPreviewChanges: new Map(),
 	aiPreviewOriginals: new Map(),
+
+	// Canvas settings
+	canvasBackgroundColor: "#ffffff",
+	activeGridMode: "dots",
 };
 
 /**
@@ -641,6 +719,37 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 		setRoughEnabled: (enabled) => set({ currentRoughEnabled: enabled }),
 		setSloppiness: (sloppiness) =>
 			set({ currentSloppiness: Math.max(0, Math.min(3, sloppiness)) }),
+
+		// ─────────────────────────────────────────────────────────────────
+		// TEXT FORMATTING ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setActiveTextStyle: (style) =>
+			set((state) => ({
+				activeTextStyle: { ...state.activeTextStyle, ...style },
+			})),
+
+		dispatchFormatCommand: (style) =>
+			set((state) => {
+				const updates: Partial<ActiveTextStyle> = {};
+				if ("bold" in style) updates.bold = style.bold ?? false;
+				if ("italic" in style) updates.italic = style.italic ?? false;
+				if ("underline" in style) updates.underline = style.underline ?? false;
+				if ("fontSize" in style) updates.fontSize = style.fontSize ?? 20;
+				if ("fontFamily" in style)
+					updates.fontFamily = style.fontFamily ?? "Arial";
+				return {
+					activeTextStyle: { ...state.activeTextStyle, ...updates },
+					_formatCommandSeq: state._formatCommandSeq + 1,
+					_formatCommandStyle: style,
+				};
+			}),
+
+		setTextEditing: (isEditing, elementId = null) =>
+			set({
+				isTextEditing: isEditing,
+				editingTextElementId: isEditing ? (elementId ?? null) : null,
+			}),
 
 		// ─────────────────────────────────────────────────────────────────
 		// VIEWPORT ACTIONS
@@ -851,6 +960,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 				aiPreviewChanges: new Map(),
 				aiPreviewOriginals: new Map(),
 			}),
+
+		// ─────────────────────────────────────────────────────────────────
+		// CANVAS SETTINGS ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setCanvasBackgroundColor: (color) => set({ canvasBackgroundColor: color }),
+		setGridMode: (mode) => set({ activeGridMode: mode }),
+		setIsArchived: (isArchived) => set({ isArchived }),
 	})),
 );
 

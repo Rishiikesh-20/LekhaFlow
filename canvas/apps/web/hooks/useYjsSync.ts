@@ -18,6 +18,7 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import type { CanvasElement, Collaborator, Point } from "@repo/common";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
+import { ensureTextRuns } from "../lib/text-runs";
 import { useCanvasStore } from "../store";
 
 // ============================================================================
@@ -26,7 +27,8 @@ import { useCanvasStore } from "../store";
 
 // Use process.env directly so Next.js substitutes values from apps/web/.env.
 // @repo/config/client does NOT receive NEXT_PUBLIC_* from the app's .env.
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8001";
+const WS_URL =
+	process.env.NEXT_PUBLIC_WS_URL ?? "wss://lekhaflow.rishiikesh.me/ws";
 
 // ============================================================================
 // TYPES
@@ -42,6 +44,8 @@ interface AwarenessState {
 	};
 	cursor: Point | null;
 	selectedElementIds: string[];
+	/** Element currently being text-edited by this user */
+	editingElementId: string | null;
 }
 
 /**
@@ -71,8 +75,11 @@ interface UseYjsSyncReturn {
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
 	updateSelection: (ids: string[]) => void;
+	updateEditingElement: (id: string | null) => void;
 	getYElements: () => Y.Map<CanvasElement>;
+	getYSettings: () => Y.Map<unknown>;
 	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
+	updateSettings: (updates: Record<string, unknown>) => void;
 	undo: () => void;
 	redo: () => void;
 	canUndo: boolean;
@@ -114,6 +121,8 @@ export function useYjsSync(
 		setRoomId,
 		setSavingStatus,
 		addActivityLogEntry,
+		setCanvasBackgroundColor,
+		setGridMode,
 		myName,
 		myColor,
 	} = useCanvasStore();
@@ -123,6 +132,15 @@ export function useYjsSync(
 	const myColorRef = useRef(myColor);
 	const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const hasSyncedRef = useRef(false);
+
+	// Store token in a ref so provider reconnection only happens on roomId change
+	const tokenRef = useRef(token);
+	useEffect(() => {
+		tokenRef.current = token;
+	}, [token]);
+
+	// Boolean flag: only triggers effect when token goes from null → non-null
+	const hasToken = !!token;
 
 	// Keep refs in sync and update awareness when identity changes
 	useEffect(() => {
@@ -146,29 +164,53 @@ export function useYjsSync(
 		return doc.getMap<CanvasElement>("elements");
 	}, [doc]);
 
+	const getYSettings = useCallback((): Y.Map<unknown> => {
+		return doc.getMap<unknown>("settings");
+	}, [doc]);
+
 	// ─────────────────────────────────────────────────────────────────
 	// CONNECT TO SERVER
 	// ─────────────────────────────────────────────────────────────────
 
 	useEffect(() => {
 		// Don't connect without token
-		if (!token) {
+		if (!hasToken || !tokenRef.current) {
 			console.log("[Hocuspocus] No token provided, skipping connection");
 			setConnectionStatus(false, false);
 			return;
 		}
 
+		// Read token from ref (avoids re-triggering effect on token refresh)
+		const initialToken = tokenRef.current;
+
 		console.log(
 			"[Hocuspocus] Attempting to connect with token:",
-			`${token.substring(0, 20)}...`,
+			`${initialToken.substring(0, 20)}...`,
 		);
+
+		// Get shared elements map (before provider so we can use it in callbacks)
+		const yElements = getYElements();
+
+		// Helper to read Y.Map state and push to store
+		const syncElementsToStore = () => {
+			const elementsObj = yElements.toJSON() as Record<string, CanvasElement>;
+			const elementsMap = new Map<string, CanvasElement>();
+
+			for (const [id, element] of Object.entries(elementsObj)) {
+				if (!element.isDeleted) {
+					elementsMap.set(id, element);
+				}
+			}
+
+			setElements(elementsMap);
+		};
 
 		// Create HocuspocusProvider
 		const provider = new HocuspocusProvider({
 			url: WS_URL,
 			name: roomId,
 			document: doc,
-			token,
+			token: initialToken,
 			onConnect: () => {
 				console.log("[Hocuspocus] Connected to", roomId);
 				setConnectionStatus(true, false);
@@ -178,6 +220,16 @@ export function useYjsSync(
 				setConnectionStatus(true, true);
 				setSavingStatus("saved");
 				hasSyncedRef.current = true;
+
+				// CRITICAL: Re-read elements after sync to ensure store has
+				// the full server state.
+				syncElementsToStore();
+
+				// Delayed re-read to catch any async update processing
+				setTimeout(() => {
+					console.log("[Hocuspocus] Delayed post-sync re-read");
+					syncElementsToStore();
+				}, 300);
 
 				// Set local awareness state using refs (not reactive values)
 				provider.awareness?.setLocalStateField("user", {
@@ -194,7 +246,7 @@ export function useYjsSync(
 				console.error("[Hocuspocus] Auth failed:", data.reason);
 				console.error(
 					"[Hocuspocus] Token used:",
-					`${token.substring(0, 20)}...`,
+					`${initialToken.substring(0, 20)}...`,
 				);
 				console.error("[Hocuspocus] WS URL:", WS_URL);
 				console.error("[Hocuspocus] Room ID:", roomId);
@@ -202,11 +254,29 @@ export function useYjsSync(
 			},
 		});
 
+		const ySettings = getYSettings();
+
+		// Helper to read Y.Map settings and push to store
+		const syncSettingsToStore = () => {
+			const settings = ySettings.toJSON();
+			const currentState = useCanvasStore.getState();
+
+			if (
+				settings.backgroundColor &&
+				settings.backgroundColor !== currentState.canvasBackgroundColor
+			) {
+				setCanvasBackgroundColor(settings.backgroundColor as string);
+			}
+			if (
+				settings.gridMode &&
+				settings.gridMode !== currentState.activeGridMode
+			) {
+				setGridMode(settings.gridMode as "none" | "grid" | "dots");
+			}
+		};
+
 		providerRef.current = provider;
 		setRoomId(roomId);
-
-		// Get shared elements map
-		const yElements = getYElements();
 
 		// Set up undo manager
 		undoManagerRef.current = new Y.UndoManager(yElements, {
@@ -241,12 +311,15 @@ export function useYjsSync(
 		};
 
 		const handleElementsChange = (event?: Y.YMapEvent<CanvasElement>) => {
+			// Sync Y.Map state to the Zustand store
+			syncElementsToStore();
 			const elementsObj = yElements.toJSON() as Record<string, CanvasElement>;
 			const elementsMap = new Map<string, CanvasElement>();
 
 			for (const [id, element] of Object.entries(elementsObj)) {
 				if (!element.isDeleted) {
-					elementsMap.set(id, element);
+					// Migrate legacy text elements to runs model
+					elementsMap.set(id, ensureTextRuns(element));
 				}
 			}
 
@@ -321,8 +394,44 @@ export function useYjsSync(
 		yElements.observe(handleElementsChange);
 		// Initial load — call without event so no logs are generated
 		handleElementsChange();
+
+		const handleSettingsChange = () => {
+			syncSettingsToStore();
+		};
+		ySettings.observe(handleSettingsChange);
+		syncSettingsToStore();
+
 		// After initial hydration, allow future changes to be logged
 		hasSyncedRef.current = true;
+
+		// ─────────────────────────────────────────────────────────────────
+		// DOCUMENT UPDATE LISTENER (catches ALL Y.Doc mutations)
+		// The Y.Map observer only fires for direct Y.Map operations.
+		// When HocuspocusProvider applies remote sync updates via
+		// Y.applyUpdate(), the internal origin varies by version, so
+		// we unconditionally re-read the Y.Map on every update.
+		// This is idempotent and ensures the store always matches Y.Doc.
+		// ─────────────────────────────────────────────────────────────────
+		const handleDocUpdate = () => {
+			syncElementsToStore();
+		};
+		doc.on("update", handleDocUpdate);
+
+		// ─────────────────────────────────────────────────────────────────
+		// PROVIDER SYNCED LISTENER (additional safety for initial load)
+		// Fires when the provider finishes exchanging state vectors with
+		// the server. Re-read elements after a short delay to handle
+		// any race conditions with Y.applyUpdate processing.
+		// ─────────────────────────────────────────────────────────────────
+		const handleProviderSynced = () => {
+			console.log("[Hocuspocus] Provider 'synced' event fired");
+			syncElementsToStore();
+			// Delayed re-read as a safety net for async update application
+			setTimeout(() => {
+				syncElementsToStore();
+			}, 500);
+		};
+		provider.on("synced", handleProviderSynced);
 
 		// ─────────────────────────────────────────────────────────────────
 		// AWARENESS OBSERVER
@@ -362,6 +471,9 @@ export function useYjsSync(
 
 		return () => {
 			yElements.unobserve(handleElementsChange);
+			ySettings.unobserve(handleSettingsChange);
+			doc.off("update", handleDocUpdate);
+			provider.off("synced", handleProviderSynced);
 			provider.awareness?.off("change", handleAwarenessChange);
 
 			undoManagerRef.current?.destroy();
@@ -382,7 +494,7 @@ export function useYjsSync(
 		};
 	}, [
 		roomId,
-		token,
+		hasToken,
 		doc,
 		setElements,
 		setCollaborators,
@@ -391,6 +503,9 @@ export function useYjsSync(
 		setSavingStatus,
 		addActivityLogEntry,
 		getYElements,
+		getYSettings,
+		setCanvasBackgroundColor,
+		setGridMode,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -513,6 +628,13 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
 	}, []);
 
+	/** Broadcast which element the local user is currently editing (text). */
+	const updateEditingElement = useCallback((id: string | null) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("editingElementId", id);
+	}, []);
+
 	/**
 	 * Restore canvas to a saved version snapshot.
 	 * Performs a "hard reset": deletes all current elements and recreates
@@ -547,6 +669,18 @@ export function useYjsSync(
 		[doc, getYElements],
 	);
 
+	const updateSettings = useCallback(
+		(updates: Record<string, unknown>) => {
+			const ySettings = getYSettings();
+			doc.transact(() => {
+				for (const [key, value] of Object.entries(updates)) {
+					ySettings.set(key, value);
+				}
+			});
+		},
+		[doc, getYSettings],
+	);
+
 	const undo = useCallback(() => {
 		undoManagerRef.current?.undo();
 	}, []);
@@ -569,8 +703,11 @@ export function useYjsSync(
 		deleteElements,
 		updateCursor,
 		updateSelection,
+		updateEditingElement,
 		getYElements,
+		getYSettings,
 		restoreVersion,
+		updateSettings,
 		undo,
 		redo,
 		canUndo,

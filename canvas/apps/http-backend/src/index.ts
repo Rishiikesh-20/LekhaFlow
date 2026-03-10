@@ -8,7 +8,7 @@ import { router } from "./routes/index.js";
 const app = express();
 const PORT = 8000;
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 app.use(cors());
 
 // Allow Private Network Access (required for Brave/Chrome fetching localhost→localhost)

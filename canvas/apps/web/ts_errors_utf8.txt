@@ -1,0 +1,3 @@
+﻿components/canvas/GridLayer.tsx(98,5): error TS2322: Type 'HTMLCanvasElement | null' is not assignable to type 'HTMLImageElement | undefined'.
+  Type 'null' is not assignable to type 'HTMLImageElement | undefined'.
+test/restore-version.test.ts(214,18): error TS2503: Cannot find namespace 'Y'.

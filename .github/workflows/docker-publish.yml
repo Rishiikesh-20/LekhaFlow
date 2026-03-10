@@ -2,7 +2,7 @@ name: Docker Build & Publish
 
 on:
     push:
-        branches: [main, dev]
+        branches: [prod, dev]
 
 env:
     REGISTRY: ghcr.io
@@ -48,7 +48,7 @@ jobs:
               with:
                   images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.app.name }}
                   tags: |
-                      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+                      type=raw,value=latest,enable=${{ github.ref == 'refs/heads/prod' }}
                       type=raw,value=staging,enable=${{ github.ref == 'refs/heads/dev' }}
                       type=sha,prefix=,format=short
 

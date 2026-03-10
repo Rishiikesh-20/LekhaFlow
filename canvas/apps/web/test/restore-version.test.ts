@@ -15,6 +15,7 @@
 import type { CanvasElement } from "@repo/common";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Y from "yjs";
 import { useYjsSync } from "../hooks/useYjsSync";
 import { createEllipse, createRectangle } from "../lib/element-utils";
 import { initialState, useCanvasStore } from "../store/canvas-store";
@@ -213,8 +214,7 @@ describe("Story 8 – Restore to Previous Version", () => {
 			const yElements = result.current.getYElements();
 			const events: Y.YMapEvent<CanvasElement>[] = [];
 
-			// Need to import Y for the type
-			const Y = await import("yjs");
+			// Clean up dynamic import, we now use top level import
 			yElements.observe((event) => {
 				events.push(event);
 			});
