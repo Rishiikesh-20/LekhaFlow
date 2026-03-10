@@ -177,7 +177,6 @@ export interface SearchCanvasesOptions {
 	limit?: number;
 	tagId?: string;
 	isArchived?: boolean;
-	tagId?: string;
 }
 
 export const searchCanvasesService = async (
@@ -197,7 +196,6 @@ export const searchCanvasesService = async (
 		limit = 20,
 		tagId,
 		isArchived = false,
-		tagId,
 	} = options;
 
 	const ascending = order === "asc";

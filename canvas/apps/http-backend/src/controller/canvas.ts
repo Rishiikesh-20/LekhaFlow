@@ -155,7 +155,6 @@ export const searchCanvases = async (req: Request, res: Response) => {
 		order,
 		page,
 		limit,
-		tagId,
 		isArchived,
 		tagId,
 	});
