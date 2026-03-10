@@ -28,6 +28,7 @@ import {
 	Save,
 	Settings,
 	Share2,
+	ShieldAlert,
 	Trash2,
 	Users,
 	X,
@@ -39,6 +40,7 @@ import {
 	useCanvasStore,
 	useCollaboratorsArray,
 } from "../../store/canvas-store";
+import { NotificationBell } from "./NotificationBell";
 
 // ============================================================================
 // SIDEBAR MENU COMPONENT
@@ -312,6 +314,18 @@ interface ShareModalProps {
 
 function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 	const [copied, setCopied] = useState(false);
+	const [shareRole, setShareRole] = useState<"viewer" | "editor">("viewer");
+	const [inviteLink, setInviteLink] = useState<string | null>(null);
+	const [generating, setGenerating] = useState(false);
+	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+
+	// Reset states when opened or role changes
+	useEffect(() => {
+		if (isOpen) {
+			setCopied(false);
+			setInviteLink(null);
+		}
+	}, [isOpen]);
 	const { scrollX, scrollY, zoom } = useCanvasStore();
 
 	// Build share URL with current viewport coordinates so the recipient
@@ -322,7 +336,51 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 			: "";
 
 	const handleCopy = async () => {
+		if (!roomId) return;
+
+		setGenerating(true);
+
 		try {
+			// Get fresh session token
+			const {
+				data: { session },
+			} = await supabase.auth.getSession();
+
+			let tokenToShare = "";
+
+			if (session) {
+				const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/invites`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${session.access_token}`,
+					},
+					body: JSON.stringify({ role: shareRole }),
+				});
+
+				if (res.ok) {
+					const json = await res.json();
+					tokenToShare = json?.data?.inviteLink || json?.inviteLink;
+				} else {
+					// User is not authorized to generate a token, likely not the owner
+					console.warn(
+						"Failed to generate token, falling back to standard link",
+					);
+				}
+			}
+
+			// Format link, appending token if we have one
+			const baseUrl =
+				typeof window !== "undefined"
+					? `${window.location.origin}/canvas/${roomId}`
+					: "";
+
+			const urlToCopy = tokenToShare
+				? `${baseUrl}?inviteToken=${tokenToShare}`
+				: baseUrl;
+			setInviteLink(urlToCopy);
+
+			await navigator.clipboard.writeText(urlToCopy);
 			if (navigator.clipboard && window.isSecureContext) {
 				await navigator.clipboard.writeText(shareUrl);
 			} else {
@@ -344,13 +402,24 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 				document.body.removeChild(textArea);
 			}
 			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
+			setTimeout(() => {
+				setCopied(false);
+				// Small delay before clearing link to prevent layout shift during 'copied' state
+				setTimeout(() => setInviteLink(null), 300);
+			}, 2000);
 		} catch (err) {
 			console.error("Failed to copy:", err);
+		} finally {
+			setGenerating(false);
 		}
 	};
 
 	if (!isOpen) return null;
+
+	const fallbackShareUrl =
+		typeof window !== "undefined"
+			? `${window.location.origin}/canvas/${roomId}`
+			: "";
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -393,6 +462,44 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 
 				{/* Content */}
 				<div className="p-6 flex flex-col gap-5">
+					{/* Role Selection */}
+					<div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex gap-3">
+						<button
+							type="button"
+							onClick={() => setShareRole("viewer")}
+							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "viewer" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
+						>
+							<ShieldAlert
+								size={16}
+								className={
+									shareRole === "viewer" ? "text-violet-500" : "text-gray-500"
+								}
+							/>
+							<span
+								className={`text-xs font-semibold ${shareRole === "viewer" ? "text-violet-700" : "text-gray-600"}`}
+							>
+								Can View
+							</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => setShareRole("editor")}
+							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "editor" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
+						>
+							<FileText
+								size={16}
+								className={
+									shareRole === "editor" ? "text-violet-500" : "text-gray-500"
+								}
+							/>
+							<span
+								className={`text-xs font-semibold ${shareRole === "editor" ? "text-violet-700" : "text-gray-600"}`}
+							>
+								Can Edit
+							</span>
+						</button>
+					</div>
+
 					{/* Share Link */}
 					<div>
 						<p className="flex items-center gap-2 text-[13px] font-bold text-gray-700 mb-3">
@@ -400,19 +507,22 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 							Shareable Link
 						</p>
 						<div className="flex gap-2.5">
-							<div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[13px] text-gray-500 font-mono truncate">
-								{shareUrl}
+							<div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[13px] text-gray-500 font-mono overflow-hidden whitespace-nowrap overflow-ellipsis">
+								{inviteLink ? "Link generated" : fallbackShareUrl}
 							</div>
 							<button
 								type="button"
 								onClick={handleCopy}
+								disabled={generating}
 								className={`px-6 py-3.5 rounded-xl font-bold border-none cursor-pointer flex items-center gap-2 transition-all text-sm text-white ${
 									copied
 										? "bg-emerald-500 shadow-[0_8px_24px_rgba(16,185,129,0.3)]"
 										: "bg-gradient-to-r from-violet-500 to-violet-600 shadow-[0_8px_24px_rgba(139,92,246,0.35)] hover:-translate-y-px hover:shadow-[0_12px_32px_rgba(139,92,246,0.45)]"
-								}`}
+								} ${generating ? "opacity-75 cursor-wait" : ""}`}
 							>
-								{copied ? (
+								{generating ? (
+									<Loader2 size={16} className="animate-spin" />
+								) : copied ? (
 									<>
 										<Check size={16} />
 										Copied!
@@ -459,7 +569,8 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 						<button
 							type="button"
 							onClick={handleCopy}
-							className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer text-[13px] font-semibold text-gray-600 transition-all hover:bg-gray-100 hover:border-violet-300 hover:text-violet-500"
+							disabled={generating}
+							className={`flex-1 flex items-center justify-center gap-2 py-3.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer text-[13px] font-semibold text-gray-600 transition-all hover:bg-gray-100 hover:border-violet-300 hover:text-violet-500 ${generating ? "opacity-75 cursor-wait" : ""}`}
 						>
 							<Link2 size={16} />
 							Copy Link
@@ -782,14 +893,26 @@ export function HeaderRight() {
 						<Users size={14} className="text-gray-400" />
 						<div className="flex -space-x-2">
 							{collaborators.slice(0, 3).map((collab, _index) => (
-								<div
+								<button
+									type="button"
 									key={collab.id}
-									className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold text-white border-2 border-white"
+									onClick={() => {
+										if (collab.viewport) {
+											useCanvasStore
+												.getState()
+												.setScroll(
+													collab.viewport.scrollX,
+													collab.viewport.scrollY,
+												);
+											useCanvasStore.getState().setZoom(collab.viewport.zoom);
+										}
+									}}
+									className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold text-white border-2 border-white cursor-pointer hover:scale-110 transition-transform shadow-sm"
 									style={{ backgroundColor: collab.color }}
-									title={collab.name}
+									title={`Click to follow ${collab.name}`}
 								>
 									{getInitials(collab.name)}
-								</div>
+								</button>
 							))}
 							{collaborators.length > 3 && (
 								<div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-semibold text-gray-600 border-2 border-white">
@@ -799,6 +922,8 @@ export function HeaderRight() {
 						</div>
 					</div>
 				)}
+
+				<NotificationBell />
 
 				{/* Share Button */}
 				<button

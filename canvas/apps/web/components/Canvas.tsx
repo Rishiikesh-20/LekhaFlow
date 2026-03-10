@@ -145,12 +145,14 @@ import { PerfHUD } from "./canvas/PerfHUD";
 import { PropertiesPanel } from "./canvas/PropertiesPanel";
 import { type HandlePosition, ResizeHandles } from "./canvas/ResizeHandles";
 import { RichTextEditor } from "./canvas/RichTextEditor";
+import { RoomChat } from "./canvas/RoomChat";
 import { RotationControls } from "./canvas/RotationControls";
 import { TextFormattingToolbar } from "./canvas/TextFormattingToolbar";
 // Import components directly to avoid circular dependencies through barrel exports
 import { Toolbar } from "./canvas/Toolbar";
 import { VersionsPanel } from "./canvas/VersionsPanel";
 import { ZoomControls } from "./canvas/ZoomControls";
+import { SetupStatus } from "./SetupStatus";
 
 // ============================================================================
 // TYPES
@@ -1065,7 +1067,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		batchUpdateElements,
 		deleteElements,
 		updateCursor,
+		updateLaser,
 		updateSelection,
+		updateViewport,
 		updateEditingElement,
 		restoreVersion,
 		undo,
@@ -1137,6 +1141,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		canvasBackgroundColor,
 		activeGridMode,
 	} = useCanvasStore();
+
+	// ─────────────────────────────────────────────────────────────────
+	// BROADCAST VIEWPORT (Follow The Leader)
+	// ─────────────────────────────────────────────────────────────────
+
+	useEffect(() => {
+		updateViewport({ scrollX, scrollY, zoom });
+	}, [scrollX, scrollY, zoom, updateViewport]);
 
 	// Elements and collaborators from store
 	const elements = useElementsArray();
@@ -1900,6 +1912,103 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	/**
 	 * Complete rich-text editing — create or update text element with runs.
 	 */
+	const _handleCompleteText = useCallback(
+		async (text: string) => {
+			if (editingText && text.trim()) {
+				// Use default dimensions since textarea ref is no longer available
+				const width = editingText.initialWidth ?? 200;
+				const height = editingText.initialHeight ?? 40;
+
+				if (editingText.elementId) {
+					// Update existing text element
+					updateElement(editingText.elementId, {
+						text,
+						width: width / zoom,
+						height: height / zoom,
+					});
+				} else {
+					// Create new text element
+					const newText = createText(editingText.x, editingText.y, text, {
+						strokeColor: currentStrokeColor,
+						opacity: currentOpacity,
+						width: width / zoom,
+						height: height / zoom,
+						zIndex: getNextZIndex(),
+					});
+					addElement(newText);
+				}
+
+				// Process Mentions
+				try {
+					const mentionMatches = text.match(/@([a-zA-Z0-9_-]+)/g);
+					if (mentionMatches && mentionMatches.length > 0) {
+						const state = useCanvasStore.getState();
+						const rId = state.roomId;
+						const myName = state.myName;
+
+						if (rId && myName) {
+							const { data } = await supabase.auth.getSession();
+							if (data?.session) {
+								const collabMap = state.collaborators;
+								const mentionedNames = mentionMatches.map((m) =>
+									m.slice(1).toLowerCase(),
+								);
+
+								Array.from(collabMap.values()).forEach((collab) => {
+									if (!collab.isCurrentUser && collab.name) {
+										const collabNameCompact = collab.name
+											.replace(/\s+/g, "")
+											.toLowerCase();
+										if (mentionedNames.includes(collabNameCompact)) {
+											// Need HTTP URL from environment
+											const HTTP_URL =
+												process.env.NEXT_PUBLIC_HTTP_URL ||
+												"http://localhost:8000";
+											fetch(`${HTTP_URL}/api/v1/notifications`, {
+												method: "POST",
+												headers: {
+													"Content-Type": "application/json",
+													Authorization: `Bearer ${data.session.access_token}`,
+												},
+												body: JSON.stringify({
+													userId: collab.id,
+													type: "mention",
+													content: `${myName} mentioned you: "${text.substring(0, 40)}..."`,
+													canvasId: rId,
+												}),
+											}).catch(console.error);
+										}
+									}
+								});
+							}
+						}
+					}
+				} catch (err) {
+					console.error("Mentions processing failed:", err);
+				}
+			} else if (editingText?.elementId && !text.trim()) {
+				// If editing existing element and text is empty, delete the element
+				deleteElements([editingText.elementId]);
+			}
+
+			setEditingText(null);
+			setTextEditing(false);
+			updateEditingElement(null);
+		},
+		[
+			editingText,
+			zoom,
+			currentStrokeColor,
+			currentOpacity,
+			addElement,
+			updateElement,
+			deleteElements,
+			getNextZIndex,
+			setTextEditing,
+			updateEditingElement,
+		],
+	);
+
 	const handleCompleteRichText = useCallback(
 		(
 			runs: TextRun[],
@@ -2236,8 +2345,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleDelete = useCallback(() => {
 		if (selectedElementIds.size > 0) {
-			deleteElements(Array.from(selectedElementIds));
-			clearSelection();
+			const unlockedIds = Array.from(selectedElementIds).filter((id) => {
+				const el = elementsRef.current.find((e) => e.id === id);
+				return el && !el.locked;
+			});
+			if (unlockedIds.length > 0) {
+				deleteElements(unlockedIds);
+				clearSelection();
+			}
 		}
 	}, [selectedElementIds, deleteElements, clearSelection]);
 
@@ -2360,8 +2475,14 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				selectedElementIds.size > 0
 			) {
 				if (isReadOnly) return;
-				deleteElements(Array.from(selectedElementIds));
-				clearSelection();
+				const unlockedIds = Array.from(selectedElementIds).filter((id) => {
+					const el = elements.find((e) => e.id === id);
+					return el && !el.locked;
+				});
+				if (unlockedIds.length > 0) {
+					deleteElements(unlockedIds);
+					clearSelection();
+				}
 				return;
 			}
 
@@ -2701,7 +2822,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							) {
 								groupMoveStartRef.current = point;
 								groupMoveInitialRef.current = elements
-									.filter((el) => selectedElementIds.has(el.id))
+									.filter((el) => selectedElementIds.has(el.id) && !el.locked)
 									.map((el) => ({ id: el.id, x: el.x, y: el.y }));
 							}
 						}
@@ -2711,8 +2832,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					// Multi-select: click inside group bounds but not on any element
 					// → start group move of all selected elements
 					if (selectedElementIds.size > 1) {
-						const selEls = elements.filter((el) =>
-							selectedElementIds.has(el.id),
+						const selEls = elements.filter(
+							(el) => selectedElementIds.has(el.id) && !el.locked,
 						);
 						const gb = getCombinedBounds(selEls);
 						if (
@@ -2860,7 +2981,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					erasedElementsRef.current.clear();
 
 					const elementToDelete = getElementAtPoint(point, elements);
-					if (elementToDelete) {
+					if (elementToDelete && !elementToDelete.locked) {
 						deleteElements([elementToDelete.id]);
 						erasedElementsRef.current.add(elementToDelete.id);
 					}
@@ -2990,6 +3111,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				const elementToDelete = getElementAtPoint(point, elements);
 				if (
 					elementToDelete &&
+					!elementToDelete.locked &&
 					!erasedElementsRef.current.has(elementToDelete.id)
 				) {
 					deleteElements([elementToDelete.id]);
@@ -3000,10 +3122,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 
 			// Handle laser pointer (temporary drawing)
 			if (activeTool === "laser" && isDrawing && interactionStartPoint) {
-				const dx = point.x - interactionStartPoint.x;
-				const dy = point.y - interactionStartPoint.y;
-
-				laserPointsRef.current.push([dx, dy]);
+				laserPointsRef.current.push([point.x, point.y]);
+				updateLaser(laserPointsRef.current);
 
 				// Generate SVG path for laser
 				const pathData = outlineToSvgPath(laserPointsRef.current, {
@@ -3182,6 +3302,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			rotatingElement,
 			broadcastDrawingPreview,
 			storeBatchUpdate,
+			updateLaser,
 		],
 	);
 
@@ -3297,6 +3418,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		if (activeTool === "laser") {
 			setLaserPath(null);
 			laserPointsRef.current = [];
+			updateLaser(undefined);
 		}
 
 		// Reset state
@@ -3331,6 +3453,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		marqueeRect,
 		elements,
 		batchUpdateElements,
+		updateLaser,
 	]);
 
 	/**
@@ -3991,7 +4114,8 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				selectedElementIds.has(el.id) &&
 				el.type !== "line" &&
 				el.type !== "arrow" &&
-				el.type !== "freedraw",
+				el.type !== "freedraw" &&
+				!el.locked,
 		);
 	}, [activeTool, elements, selectedElementIds]);
 
@@ -4024,6 +4148,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				canUndo={canUndo}
 				canRedo={canRedo}
 			/>
+
+			<RoomChat />
+			<SetupStatus />
 
 			{/* Diagram Intent Classification Badge (Story 5) */}
 			<DiagramIntentBadge intent={diagramIntent} />
@@ -4094,6 +4221,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							selectedElementIds.has(element.id),
 							activeTool === "selection" &&
 								!rotatingElement &&
+								!element.locked &&
 								selectedElementIds.size <= 1,
 							false, // not preview
 							handleElementDragEnd,
@@ -4120,16 +4248,35 @@ export function Canvas({ roomId, token }: CanvasProps) {
 						))}
 
 					{/* Render laser path (temporary) */}
-					{laserPath && activeTool === "laser" && interactionStartPoint && (
+					{laserPath && activeTool === "laser" && (
 						<Path
 							data={laserPath}
-							x={interactionStartPoint.x}
-							y={interactionStartPoint.y}
 							fill={currentStrokeColor}
 							opacity={0.6}
 							listening={false}
 						/>
 					)}
+
+					{/* Render remote laser paths */}
+					{collaborators.map((c) => {
+						if (!c.laserData || c.laserData.length === 0) return null;
+						const remotePath = outlineToSvgPath(c.laserData, {
+							size: currentStrokeWidth * 2,
+							thinning: 0.5,
+							smoothing: 0.5,
+							streamline: 0.5,
+							simulatePressure: true,
+						});
+						return (
+							<Path
+								key={`laser-${c.id}`}
+								data={remotePath}
+								fill={c.color}
+								opacity={0.6}
+								listening={false}
+							/>
+						);
+					})}
 
 					{/* ── Single-selection handles (resize + rotate) ── */}
 					{selectedElementIds.size === 1 &&

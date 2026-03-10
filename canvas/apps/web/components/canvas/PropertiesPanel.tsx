@@ -14,6 +14,7 @@ import {
 	Lock,
 	Palette,
 	Plus,
+	Unlock,
 	X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -97,6 +98,7 @@ export function PropertiesPanel({ onUpdateSettings }: PropertiesPanelProps) {
 		isReadOnly,
 		currentFillStyle,
 		setFillStyle,
+		batchUpdateElements,
 		canvasBackgroundColor,
 		activeGridMode,
 		setCanvasBackgroundColor,
@@ -110,6 +112,19 @@ export function PropertiesPanel({ onUpdateSettings }: PropertiesPanelProps) {
 		(el) => el.type === "freedraw" || (el.type as string) === "freehand",
 	);
 	const showBrushControls = activeTool === "freedraw" || hasSelectedFreedraw;
+
+	const allLocked =
+		selectedElements.length > 0 && selectedElements.every((el) => el.locked);
+
+	const handleToggleLock = () => {
+		const newLockedState = !allLocked;
+		batchUpdateElements(
+			selectedElements.map((el) => ({
+				id: el.id,
+				updates: { locked: newLockedState },
+			})),
+		);
+	};
 
 	// Close brush dropdown on outside click
 	useEffect(() => {
@@ -169,13 +184,29 @@ export function PropertiesPanel({ onUpdateSettings }: PropertiesPanelProps) {
 						</div>
 						<span className="text-sm font-bold text-gray-800">Style</span>
 					</div>
-					<button
-						type="button"
-						onClick={() => setIsCollapsed(true)}
-						className="p-1.5 rounded-lg bg-transparent border-none cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center"
-					>
-						<X size={16} className="text-gray-400" />
-					</button>
+					<div className="flex items-center gap-1">
+						{selectedElements.length > 0 && (
+							<button
+								type="button"
+								onClick={handleToggleLock}
+								title={allLocked ? "Unlock Elements" : "Lock Elements"}
+								className={`p-1.5 rounded-lg border-none cursor-pointer transition-colors flex items-center justify-center ${
+									allLocked
+										? "bg-red-50 text-red-500 hover:bg-red-100"
+										: "bg-transparent text-gray-400 hover:bg-gray-100"
+								}`}
+							>
+								{allLocked ? <Lock size={16} /> : <Unlock size={16} />}
+							</button>
+						)}
+						<button
+							type="button"
+							onClick={() => setIsCollapsed(true)}
+							className="p-1.5 rounded-lg bg-transparent border-none cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center"
+						>
+							<X size={16} className="text-gray-400" />
+						</button>
+					</div>
 				</div>
 
 				{/* Stroke Color */}

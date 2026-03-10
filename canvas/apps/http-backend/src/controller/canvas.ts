@@ -1,5 +1,7 @@
 import {
 	CreateCanvasSchema,
+	CreateInviteSchema,
+	JoinCanvasSchema,
 	ToggleStarSchema,
 	UpdateCanvasSchema,
 } from "@repo/common";
@@ -8,12 +10,14 @@ import type { Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
 import {
 	createCanvasService,
+	createInviteService,
 	deleteCanvasService,
 	duplicateCanvasService,
 	getCanvasesService,
 	getCanvasService,
 	getRecentCanvasesService,
 	getStarredCanvasesService,
+	joinCanvasService,
 	searchCanvasesService,
 	toggleArchiveCanvasService,
 	toggleStarService,
@@ -34,7 +38,14 @@ export const createCanvas = async (req: Request, res: Response) => {
 		);
 	}
 
-	const { name, isPublic, folderId } = parsedData.data;
+	const { name, isPublic } = parsedData.data;
+	const folderId =
+		"folderId" in parsedData.data
+			? ((parsedData.data as Record<string, unknown>).folderId as
+					| string
+					| null
+					| undefined)
+			: null;
 	if (!req.user) {
 		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
 	}
@@ -208,6 +219,40 @@ export const touchCanvasAccess = async (req: Request, res: Response) => {
 	res.status(StatusCodes.NO_CONTENT).end();
 };
 
+export const createInviteLink = async (req: Request, _res: Response) => {
+	const { roomId } = req.params;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const parsedData = CreateInviteSchema.safeParse(req.body);
+
+	if (!parsedData.success) {
+		throw new HttpError(
+			"Validation Failed: " +
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+			StatusCodes.BAD_REQUEST,
+		);
+	}
+
+	const userId = req.user.id;
+	const { role } = parsedData.data;
+
+	const { inviteLink } = await createInviteService(roomId, role, userId);
+
+	return JSONResponse(
+		_res,
+		StatusCodes.CREATED,
+		"Invite link generated successfully",
+		{
+			inviteLink,
+		},
+	);
+};
+
 export const updateThumbnail = async (req: Request, res: Response) => {
 	const roomId = req.params.roomId;
 	if (!roomId || typeof roomId !== "string") {
@@ -252,6 +297,43 @@ export const duplicateCanvas = async (req: Request, res: Response) => {
 			canvas: copy,
 		},
 	);
+};
+
+export const joinCanvasWithLink = async (req: Request, _res: Response) => {
+	const { roomId } = req.params;
+	if (!roomId || typeof roomId !== "string") {
+		throw new HttpError("Room ID is required", StatusCodes.BAD_REQUEST);
+	}
+	if (!req.user) {
+		throw new HttpError("Unauthorized", StatusCodes.UNAUTHORIZED);
+	}
+
+	const parsedData = JoinCanvasSchema.safeParse(req.body);
+
+	if (!parsedData.success) {
+		throw new HttpError(
+			"Validation Failed: " +
+				(parsedData.error.issues[0]?.message ?? "Invalid input"),
+			StatusCodes.BAD_REQUEST,
+		);
+	}
+
+	const userId = req.user.id;
+	const { token } = parsedData.data;
+
+	const result = await joinCanvasService(token, userId);
+
+	// ensure the token corresponds to the requested canvas
+	if (result.roomId !== roomId) {
+		throw new HttpError(
+			"Token does not correspond to this canvas",
+			StatusCodes.BAD_REQUEST,
+		);
+	}
+
+	return JSONResponse(_res, StatusCodes.OK, "Successfully joined canvas", {
+		role: result.role,
+	});
 };
 
 export const toggleArchiveCanvas = async (req: Request, res: Response) => {

@@ -373,6 +373,8 @@ export interface UserCursor {
 		odLOAcolor: string;
 	};
 	odLOAselectedElementIds?: string[];
+	laserData?: [number, number][];
+	viewport?: ViewportState;
 }
 
 /**
@@ -509,8 +511,10 @@ export interface Collaborator {
 	name: string;
 	color: string;
 	cursor: Point | null;
+	laserData?: [number, number][];
 	selectedElementIds: string[];
 	isCurrentUser: boolean;
+	viewport?: ViewportState;
 }
 
 /**
