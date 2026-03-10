@@ -31,13 +31,10 @@ export function HelpPanel() {
 	const [isOpen, setIsOpen] = useState(false);
 
 	return (
-		<div
-			className="fixed z-[var(--z-controls)]"
-			style={{ bottom: "104px", right: "90px" }}
-		>
+		<div className="fixed z-[var(--z-controls)] bottom-[90px] right-3 sm:right-[90px]">
 			{isOpen ? (
 				<div
-					className="glass-card-elevated p-4 w-[280px]"
+					className="glass-card-elevated p-4 w-[calc(100vw-24px)] sm:w-[280px]"
 					style={{
 						borderRadius: "var(--radius-xl)",
 						boxShadow: "var(--shadow-lg)",

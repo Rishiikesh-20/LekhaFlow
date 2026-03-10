@@ -1140,6 +1140,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		setActiveTextStyle,
 		canvasBackgroundColor,
 		activeGridMode,
+		myName,
 	} = useCanvasStore();
 
 	// ─────────────────────────────────────────────────────────────────
@@ -1723,6 +1724,13 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		};
 
 		const onWheel = (e: WheelEvent) => {
+			// Skip events that originate from UI panels (e.g., PropertiesPanel).
+			// Those panels attach their own native wheel listener that calls
+			// stopPropagation(), but in case the event still reaches here
+			// (e.g., capture phase), check if the target is a UI overlay element.
+			const target = e.target as HTMLElement;
+			if (target?.closest?.("[data-ui-panel]")) return;
+
 			if (e.ctrlKey || e.metaKey) {
 				// Always prevent browser zoom regardless of target
 				e.preventDefault();
@@ -2296,10 +2304,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const showBeautifyButton = useMemo(() => {
 		if (selectedElementIds.size === 0) return false;
-		return elementsRef.current.some(
-			(el) => selectedElementIds.has(el.id) && el.type === "freedraw",
+		return elements.some(
+			(el) =>
+				selectedElementIds.has(el.id) &&
+				(el.type === "freedraw" || (el.type as string) === "freehand"),
 		);
-	}, [selectedElementIds]);
+	}, [selectedElementIds, elements]);
 
 	/**
 	 * Handle beautify: detect shapes from selected freedraw strokes and
@@ -2307,9 +2317,19 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	 */
 	const handleBeautify = useCallback(() => {
 		if (isReadOnly) return;
-		const selectedEls = elementsRef.current.filter((el) =>
+
+		// Read elements from the ref first; fall back to the live store snapshot
+		// in case the ref hasn't been flushed yet (effects run after paint).
+		let selectedEls = elementsRef.current.filter((el) =>
 			selectedElementIds.has(el.id),
 		);
+		if (selectedEls.length === 0) {
+			// Fallback: read directly from store (always up-to-date)
+			const storeMap = useCanvasStore.getState().elements;
+			selectedEls = Array.from(storeMap.values()).filter((el) =>
+				selectedElementIds.has(el.id),
+			);
+		}
 		if (selectedEls.length === 0) return;
 
 		const { removedIds, newElements } = beautifyElements(
@@ -2961,7 +2981,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				case "laser": {
 					// Laser tool - temporary pointer (doesn't persist)
 					setIsDrawing(true);
-					laserPointsRef.current = [[0, 0]];
+					laserPointsRef.current = [[point.x, point.y]];
 					break;
 				}
 
@@ -4123,7 +4143,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		// biome-ignore lint/a11y/noStaticElementInteractions: Context menu handler for canvas area
 		<div
 			ref={containerRef}
-			className="relative w-full h-full overflow-hidden transition-colors duration-300"
+			className="relative w-full h-full overflow-hidden transition-colors duration-300 dot-background"
 			style={{ backgroundColor: canvasBackgroundColor }}
 			onContextMenu={handleContextMenu}
 		>
@@ -4166,7 +4186,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 			{elements.length === 0 && <EmptyCanvasHero />}
 
 			{/* Collaborator Cursors */}
-			<CollaboratorCursors collaborators={collaborators} />
+			<CollaboratorCursors collaborators={collaborators} myName={myName} />
 
 			{/* Connection Status */}
 			<ConnectionStatus
@@ -4192,6 +4212,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				onMouseLeave={handleMouseLeave}
 				onDblClick={handleDoubleClick}
 				style={{
+					touchAction: "none",
 					cursor:
 						activeTool === "hand"
 							? isDragging

@@ -82,7 +82,7 @@ function SidebarMenu({
 
 			{/* Menu Card */}
 			<div
-				className={`fixed top-20 right-4 w-[300px] glass-card-elevated rounded-2xl z-50 max-h-[calc(100vh-100px)] flex flex-col transition-all duration-200 ease-out ${
+				className={`fixed top-16 sm:top-20 right-2 sm:right-4 w-[calc(100vw-16px)] sm:w-[300px] glass-card-elevated rounded-2xl z-50 max-h-[calc(100vh-80px)] flex flex-col transition-all duration-200 ease-out ${
 					isOpen
 						? "translate-y-0 scale-100 opacity-100 pointer-events-auto"
 						: "-translate-y-2.5 scale-95 opacity-0 pointer-events-none"
@@ -433,7 +433,7 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 			/>
 
 			{/* Modal Card */}
-			<div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[540px] overflow-hidden animate-scale-in">
+			<div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[calc(100vw-32px)] sm:max-w-[540px] overflow-hidden animate-scale-in">
 				{/* Gradient Header */}
 				<div className="bg-gradient-to-br from-violet-500 via-violet-600 to-indigo-600 p-6">
 					<div className="flex items-center justify-between">
@@ -506,7 +506,7 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 							<Link2 size={16} className="text-violet-500" />
 							Shareable Link
 						</p>
-						<div className="flex gap-2.5">
+						<div className="flex flex-col sm:flex-row gap-2.5">
 							<div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[13px] text-gray-500 font-mono overflow-hidden whitespace-nowrap overflow-ellipsis">
 								{inviteLink ? "Link generated" : fallbackShareUrl}
 							</div>
@@ -784,7 +784,7 @@ export function HeaderLeft({
 		<>
 			{/* Header Left Row — flex container for back, menu, title, saving status */}
 			<div
-				className="absolute top-4 left-4 right-[180px] z-[var(--z-toolbar)] flex items-center gap-2"
+				className="absolute top-4 left-4 right-[60px] sm:right-[180px] z-[var(--z-toolbar)] flex items-center gap-1.5 sm:gap-2"
 				style={{ animation: "fade-in 0.3s ease-out" }}
 			>
 				{/* Back Button */}
@@ -811,7 +811,7 @@ export function HeaderLeft({
 
 				{/* Canvas Name Card */}
 				<div
-					className="glass-card-elevated px-3 py-2 flex items-center gap-2 min-w-0 max-w-[280px] sm:max-w-[360px] flex-shrink"
+					className="glass-card-elevated px-2 sm:px-3 py-2 flex items-center gap-2 min-w-0 max-w-[160px] sm:max-w-[360px] flex-shrink"
 					style={{ animation: "fade-in 0.3s ease-out 0.05s backwards" }}
 				>
 					{loading ? (
@@ -847,8 +847,10 @@ export function HeaderLeft({
 					)}
 				</div>
 
-				{/* Saving Status Indicator — inline in the flex row */}
-				<SavingStatusIndicator />
+				{/* Saving Status Indicator — inline in the flex row (hidden on mobile) */}
+				<div className="hidden sm:block">
+					<SavingStatusIndicator />
+				</div>
 			</div>
 
 			{/* Sidebar Menu */}
@@ -886,10 +888,10 @@ export function HeaderRight() {
 
 	return (
 		<>
-			<div className="absolute top-4 right-4 z-[var(--z-toolbar)] flex items-center gap-2 sm:gap-3">
-				{/* Collaborators - Simple Avatar Stack */}
+			<div className="absolute top-4 right-2 sm:right-4 z-[var(--z-toolbar)] flex items-center gap-1.5 sm:gap-3">
+				{/* Collaborators - Simple Avatar Stack (hidden on very small screens) */}
 				{collaborators.length > 0 && (
-					<div className="flex items-center gap-2 glass-card px-3 py-2 rounded-full">
+					<div className="hidden sm:flex items-center gap-2 glass-card px-3 py-2 rounded-full">
 						<Users size={14} className="text-gray-400" />
 						<div className="flex -space-x-2">
 							{collaborators.slice(0, 3).map((collab, _index) => (
@@ -929,7 +931,7 @@ export function HeaderRight() {
 				<button
 					type="button"
 					onClick={() => setShareModalOpen(true)}
-					className="flex items-center gap-2 px-6 py-2.5 cursor-pointer border-none text-sm font-semibold transition-all"
+					className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 cursor-pointer border-none text-sm font-semibold transition-all"
 					style={{
 						borderRadius: "var(--radius-md)",
 						background: "var(--color-accent)",
@@ -947,7 +949,7 @@ export function HeaderRight() {
 					}}
 				>
 					<Share2 size={16} />
-					Share
+					<span className="hidden sm:inline">Share</span>
 				</button>
 			</div>
 

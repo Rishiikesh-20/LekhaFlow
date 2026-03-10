@@ -1048,8 +1048,8 @@ export function FolderView({
 				))}
 			</nav>
 
-			<div className="flex items-center gap-3">
-				<div className="relative flex-1 max-w-md">
+			<div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+				<div className="relative flex-1 sm:max-w-md">
 					<Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
 					<input
 						id="canvas-search-input"
@@ -1129,8 +1129,8 @@ export function FolderView({
 			)}
 
 			{/* Toolbar */}
-			<div className="flex items-center justify-between gap-3">
-				<div className="flex items-center gap-2">
+			<div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-3">
+				<div className="flex items-center gap-2 flex-wrap">
 					<Button
 						variant="secondary"
 						size="sm"

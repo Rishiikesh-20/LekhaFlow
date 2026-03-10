@@ -131,7 +131,7 @@ export default function Home() {
 		user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
 	return (
-		<main className="min-h-screen bg-[#f8f7f4] font-sans">
+		<main className="min-h-screen bg-[#f8f7f4] dot-background font-sans">
 			{/* Navbar */}
 			<nav className="border-b border-gray-200/60 bg-white/80 backdrop-blur-xl sticky top-0 z-50">
 				<div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -284,9 +284,9 @@ export default function Home() {
 			</section>
 
 			{/* Features */}
-			<section className="py-10 border-y border-gray-200/60 bg-white/50">
-				<div className="max-w-6xl mx-auto px-6">
-					<div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm">
+			<section className="py-8 sm:py-10 border-y border-gray-200/60 bg-white/50">
+				<div className="max-w-6xl mx-auto px-4 sm:px-6">
+					<div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 text-sm">
 						<div className="flex items-center gap-3 justify-center">
 							<div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
 								<Zap className="w-4 h-4 text-green-600" />
@@ -335,14 +335,14 @@ export default function Home() {
 
 			{/* Dashboard Section - only shown when signed in */}
 			{user && (
-				<section className="px-6 py-16">
+				<section className="px-4 sm:px-6 py-10 sm:py-16">
 					<div className="max-w-6xl mx-auto">
 						<div className="flex items-center justify-between mb-8">
-							<div className="flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-xl p-1">
+							<div className="flex items-center gap-1 bg-gray-100 border border-gray-200 rounded-xl p-1 overflow-x-auto scrollbar-hide">
 								<button
 									type="button"
 									onClick={() => setActiveTab("canvases")}
-									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+									className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
 										activeTab === "canvases"
 											? "bg-white text-gray-900 shadow-sm"
 											: "text-gray-500 hover:text-gray-700"
@@ -353,7 +353,7 @@ export default function Home() {
 								<button
 									type="button"
 									onClick={() => setActiveTab("archived")}
-									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+									className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
 										activeTab === "archived"
 											? "bg-white text-gray-900 shadow-sm"
 											: "text-gray-500 hover:text-gray-700"
@@ -365,7 +365,7 @@ export default function Home() {
 								<button
 									type="button"
 									onClick={() => setActiveTab("trash")}
-									className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+									className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
 										activeTab === "trash"
 											? "bg-white text-gray-900 shadow-sm"
 											: "text-gray-500 hover:text-gray-700"

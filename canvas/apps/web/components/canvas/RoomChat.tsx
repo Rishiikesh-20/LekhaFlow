@@ -132,11 +132,11 @@ export function RoomChat() {
 
 	return (
 		<>
-			{/* Chat Toggle Button */}
+			{/* Chat Toggle Button — positioned above zoom controls */}
 			<button
 				type="button"
 				onClick={() => setIsOpen(!isOpen)}
-				className={`absolute bottom-4 right-4 z-50 p-3 rounded-full shadow-lg transition-colors border-none cursor-pointer flex items-center justify-center ${
+				className={`fixed bottom-[120px] sm:bottom-[140px] right-3 sm:right-4 z-50 p-2.5 sm:p-3 rounded-full shadow-lg transition-colors border-none cursor-pointer flex items-center justify-center ${
 					isOpen
 						? "bg-violet-600 text-white"
 						: "bg-white text-gray-700 hover:bg-gray-50 ring-1 ring-gray-200"
@@ -148,7 +148,7 @@ export function RoomChat() {
 
 			{/* Chat Sidebar */}
 			{isOpen && (
-				<div className="absolute right-4 bottom-16 z-50 w-80 h-[450px] bg-white rounded-2xl shadow-xl ring-1 ring-gray-200 flex flex-col animate-scale-in flex-shrink-0">
+				<div className="fixed right-2 sm:right-4 bottom-[170px] sm:bottom-[200px] z-50 w-[calc(100vw-16px)] sm:w-80 h-[min(400px,calc(100vh-240px))] sm:h-[min(450px,calc(100vh-280px))] bg-white rounded-2xl shadow-xl ring-1 ring-gray-200 flex flex-col animate-scale-in flex-shrink-0">
 					{/* Header */}
 					<div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
 						<div className="flex items-center gap-2">

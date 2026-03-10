@@ -125,7 +125,7 @@ export function NotificationBell() {
 			</button>
 
 			{isOpen && (
-				<div className="absolute top-[calc(100%+8px)] right-0 w-[320px] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-[9999]">
+				<div className="absolute top-[calc(100%+8px)] right-0 w-[calc(100vw-24px)] sm:w-[320px] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-[9999]">
 					<div className="p-3 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
 						<h3 className="text-sm font-bold text-gray-800 m-0">
 							Notifications

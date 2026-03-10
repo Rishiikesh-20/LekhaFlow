@@ -30,13 +30,10 @@ export function ZoomControls({
 	const zoomOut = () => setZoom(Math.max(0.1, zoom / 1.2));
 
 	return (
-		<div
-			className="fixed z-[var(--z-controls)]"
-			style={{ bottom: "16px", right: "16px" }}
-		>
+		<div className="fixed z-[var(--z-controls)] bottom-3 right-3 sm:bottom-4 sm:right-4">
 			{/* Zoom Controls - Pill Shape */}
 			<div
-				className="glass-card-elevated flex items-center gap-1 p-1.5 mb-3"
+				className="glass-card-elevated flex items-center gap-0.5 sm:gap-1 p-1 sm:p-1.5 mb-2 sm:mb-3"
 				style={{
 					borderRadius: "24px",
 					boxShadow: "var(--shadow-md)",
@@ -48,7 +45,7 @@ export function ZoomControls({
 					type="button"
 					onClick={zoomOut}
 					title="Zoom out (Ctrl -)"
-					className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all cursor-pointer border-none bg-transparent"
+					className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all cursor-pointer border-none bg-transparent"
 					style={{ borderRadius: "var(--radius-md)" }}
 				>
 					<ZoomOut size={18} />
@@ -59,7 +56,7 @@ export function ZoomControls({
 					type="button"
 					onClick={resetViewport}
 					title="Reset zoom (Ctrl 0)"
-					className="px-4 py-2 rounded-lg bg-transparent hover:bg-gray-100 text-gray-600 text-sm font-semibold min-w-[64px] tabular-nums cursor-pointer transition-colors border-none"
+					className="px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg bg-transparent hover:bg-gray-100 text-gray-600 text-xs sm:text-sm font-semibold min-w-[48px] sm:min-w-[64px] tabular-nums cursor-pointer transition-colors border-none"
 					style={{ borderRadius: "var(--radius-md)" }}
 				>
 					{Math.round(zoom * 100)}%
@@ -70,7 +67,7 @@ export function ZoomControls({
 					type="button"
 					onClick={zoomIn}
 					title="Zoom in (Ctrl +)"
-					className="w-10 h-10 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all cursor-pointer border-none bg-transparent"
+					className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-all cursor-pointer border-none bg-transparent"
 					style={{ borderRadius: "var(--radius-md)" }}
 				>
 					<ZoomIn size={18} />
@@ -79,7 +76,7 @@ export function ZoomControls({
 
 			{/* Undo/Redo Controls */}
 			<div
-				className="glass-card-elevated flex items-center gap-1 p-1.5"
+				className="glass-card-elevated flex items-center gap-0.5 sm:gap-1 p-1 sm:p-1.5"
 				style={{
 					borderRadius: "24px",
 					boxShadow: "var(--shadow-md)",
@@ -92,7 +89,7 @@ export function ZoomControls({
 					onClick={() => undo?.()}
 					disabled={!canUndo}
 					title="Undo (Ctrl Z)"
-					className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all border-none bg-transparent ${
+					className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all border-none bg-transparent ${
 						canUndo
 							? "text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer"
 							: "text-gray-300 cursor-not-allowed"
@@ -108,7 +105,7 @@ export function ZoomControls({
 					onClick={() => redo?.()}
 					disabled={!canRedo}
 					title="Redo (Ctrl Shift Z)"
-					className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all border-none bg-transparent ${
+					className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-all border-none bg-transparent ${
 						canRedo
 							? "text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer"
 							: "text-gray-300 cursor-not-allowed"
