@@ -31,6 +31,11 @@ canvasRouter.put("/:roomId/thumbnail", authMiddleware, updateThumbnail);
 canvasRouter.patch("/:roomId/star", authMiddleware, toggleStar);
 canvasRouter.patch("/:roomId/archive", authMiddleware, toggleArchiveCanvas);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
+
+// Canvas-scoped tag routes
+canvasRouter.get("/:roomId/tags", authMiddleware, getCanvasTags);
+canvasRouter.post("/:roomId/tags", authMiddleware, assignTag);
+canvasRouter.delete("/:roomId/tags/:tagId", authMiddleware, unassignTag);
 canvasRouter.post("/:roomId/duplicate", authMiddleware, duplicateCanvas);
 
 // Canvas-scoped tag routes

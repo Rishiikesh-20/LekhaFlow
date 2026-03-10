@@ -982,10 +982,9 @@ export function FolderView({
 												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 												unoptimized
 												alt={canvas.name || "Canvas preview"}
-												className="w-full h-full object-cover"
+												className="object-cover"
 												loading="lazy"
-												width={320}
-												height={180}
+												fill
 											/>
 										) : (
 											<div>
@@ -1256,9 +1255,8 @@ export function FolderView({
 												src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 												unoptimized
 												alt={canvas.name || "Canvas"}
-												className="w-full h-full object-cover"
-												width={300}
-												height={225}
+												className="object-cover"
+												fill
 											/>
 										) : (
 											<div className="w-full h-full flex items-center justify-center">
@@ -1360,9 +1358,8 @@ export function FolderView({
 													src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 													unoptimized
 													alt={canvas.name}
-													className="w-full h-full object-cover"
-													width={56}
-													height={40}
+													className="object-cover"
+													fill
 												/>
 											) : (
 												<File size={18} className="text-violet-500" />
@@ -1780,9 +1777,8 @@ export function FolderView({
 											src={`${canvas.thumbnail_url}?t=${new Date(canvas.updated_at || 0).getTime()}`}
 											unoptimized
 											alt={canvas.name || "Canvas"}
-											className="w-full h-full object-cover"
-											width={56}
-											height={40}
+											className="object-cover"
+											fill
 										/>
 									) : (
 										<File size={18} className="text-violet-500" />
@@ -1822,6 +1818,78 @@ export function FolderView({
 										)}
 									</div>
 								</div>
+							</div>
+							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+								{/* Add Tag Button */}
+								<div className="relative">
+									<button
+										type="button"
+										onClick={(e) => {
+											e.stopPropagation();
+											setShowTagDropdown((prev) =>
+												prev === canvas.id ? null : canvas.id,
+											);
+										}}
+										className="p-1.5 rounded-md text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all"
+										title="Manage tags"
+									>
+										<Tag size={14} />
+									</button>
+									{showTagDropdown === canvas.id && (
+										<div
+											ref={tagDropdownRef}
+											role="menu"
+											className="absolute right-0 top-8 z-50 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-2"
+											onClick={(e) => e.stopPropagation()}
+											onKeyDown={(e) => e.stopPropagation()}
+										>
+											<p className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+												Tags
+											</p>
+											{allTags.length === 0 && (
+												<p className="px-3 py-2 text-xs text-gray-400">
+													No tags yet. Use &quot;Manage Tags&quot; to create
+													one.
+												</p>
+											)}
+											{allTags.map((tag) => {
+												const isAssigned = (canvasTags[canvas.id] || []).some(
+													(t) => t.id === tag.id,
+												);
+												return (
+													<button
+														key={tag.id}
+														type="button"
+														onClick={() =>
+															handleToggleCanvasTag(canvas.id, tag.id)
+														}
+														className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors"
+													>
+														<span
+															className="w-3 h-3 rounded-full flex-shrink-0"
+															style={{
+																backgroundColor: tag.color || "#6D28D9",
+															}}
+														/>
+														<span className="flex-1 text-left truncate text-gray-700">
+															{tag.name}
+														</span>
+														{isAssigned && (
+															<Check size={14} className="text-violet-600" />
+														)}
+													</button>
+												);
+											})}
+										</div>
+									)}
+								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									onClick={() => router.push(`/canvas/${canvas.id}`)}
+								>
+									Open
+								</Button>
 							</div>
 							<div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
 								{/* Star Button */}

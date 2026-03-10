@@ -175,6 +175,7 @@ export interface SearchCanvasesOptions {
 	order?: "asc" | "desc";
 	page?: number;
 	limit?: number;
+	tagId?: string;
 	isArchived?: boolean;
 	tagId?: string;
 }
@@ -194,6 +195,7 @@ export const searchCanvasesService = async (
 		order = "desc",
 		page = 1,
 		limit = 20,
+		tagId,
 		isArchived = false,
 		tagId,
 	} = options;
