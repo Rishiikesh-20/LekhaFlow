@@ -7,8 +7,10 @@ import {
 	getCanvas,
 	getCanvases,
 	getRecentCanvases,
+	getStarredCanvases,
 	searchCanvases,
 	toggleArchiveCanvas,
+	toggleStar,
 	touchCanvasAccess,
 	updateCanvas,
 	updateThumbnail,
@@ -20,11 +22,14 @@ export const canvasRouter: RouterType = Router();
 canvasRouter.get("/", authMiddleware, getCanvases);
 canvasRouter.get("/search", authMiddleware, searchCanvases);
 canvasRouter.get("/recent", authMiddleware, getRecentCanvases);
+canvasRouter.get("/starred", authMiddleware, getStarredCanvases);
 canvasRouter.get("/:roomId", authMiddleware, getCanvas);
 canvasRouter.post("/create-canvas", authMiddleware, createCanvas);
 canvasRouter.put("/:roomId", authMiddleware, updateCanvas);
 canvasRouter.patch("/:roomId/touch", authMiddleware, touchCanvasAccess);
 canvasRouter.put("/:roomId/thumbnail", authMiddleware, updateThumbnail);
+canvasRouter.patch("/:roomId/star", authMiddleware, toggleStar);
+canvasRouter.patch("/:roomId/archive", authMiddleware, toggleArchiveCanvas);
 canvasRouter.delete("/:roomId", authMiddleware, deleteCanvas);
 
 // Canvas-scoped tag routes
@@ -32,4 +37,8 @@ canvasRouter.get("/:roomId/tags", authMiddleware, getCanvasTags);
 canvasRouter.post("/:roomId/tags", authMiddleware, assignTag);
 canvasRouter.delete("/:roomId/tags/:tagId", authMiddleware, unassignTag);
 canvasRouter.post("/:roomId/duplicate", authMiddleware, duplicateCanvas);
-canvasRouter.patch("/:roomId/archive", authMiddleware, toggleArchiveCanvas);
+
+// Canvas-scoped tag routes
+canvasRouter.get("/:roomId/tags", authMiddleware, getCanvasTags);
+canvasRouter.post("/:roomId/tags", authMiddleware, assignTag);
+canvasRouter.delete("/:roomId/tags/:tagId", authMiddleware, unassignTag);

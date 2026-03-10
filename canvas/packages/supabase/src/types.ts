@@ -107,6 +107,7 @@ export type Database = {
 					id: string;
 					is_deleted: boolean | null;
 					is_public: boolean | null;
+					is_starred: boolean;
 					last_accessed_at: string | null;
 					name: string;
 					owner_id: string;
@@ -122,6 +123,7 @@ export type Database = {
 					id?: string;
 					is_deleted?: boolean | null;
 					is_public?: boolean | null;
+					is_starred?: boolean;
 					last_accessed_at?: string | null;
 					name: string;
 					owner_id: string;
@@ -137,6 +139,7 @@ export type Database = {
 					id?: string;
 					is_deleted?: boolean | null;
 					is_public?: boolean | null;
+					is_starred?: boolean;
 					last_accessed_at?: string | null;
 					name?: string;
 					owner_id?: string;

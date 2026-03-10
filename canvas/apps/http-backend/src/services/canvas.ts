@@ -209,7 +209,9 @@ export const searchCanvasesService = async (
 			.select("canvas_id")
 			.eq("tag_id", tagId);
 
-		tagFilteredIds = (tagRows || []).map((r) => r.canvas_id);
+		tagFilteredIds = (tagRows || []).map(
+			(r: { canvas_id: string }) => r.canvas_id,
+		);
 		if (tagFilteredIds.length === 0) {
 			// No canvases have this tag — return empty
 			return { canvases: [], total: 0, page, limit };
@@ -336,7 +338,8 @@ export const getRecentCanvasesService = async (
 	userId: string,
 	limit = 5,
 ): Promise<Tables<"canvases">[]> => {
-	const { data, error } = await getClient()
+	// 1. Get owned recent canvases
+	const { data: ownedData, error: ownedError } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", userId)
@@ -346,11 +349,61 @@ export const getRecentCanvasesService = async (
 		.order("last_accessed_at", { ascending: false })
 		.limit(limit);
 
-	if (error) {
-		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	if (ownedError) {
+		throw new HttpError(ownedError.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
 
-	return data || [];
+	// 2. Get recently accessed shared canvases (non-critical — ignore failures)
+	let sharedData: Tables<"canvases">[] = [];
+	try {
+		const { data: accessLogs } = await getClient()
+			.from("activity_logs")
+			.select("canvas_id")
+			.eq("user_id", userId)
+			.eq("action", "accessed")
+			.order("created_at", { ascending: false });
+
+		const recentSharedIds = [
+			...new Set(
+				(accessLogs || [])
+					.map((log) => log.canvas_id)
+					.filter((id) => !(ownedData || []).some((c) => c.id === id)),
+			),
+		].slice(0, limit);
+
+		if (recentSharedIds.length > 0) {
+			const { data: shared } = await getClient()
+				.from("canvases")
+				.select("*")
+				.in("id", recentSharedIds)
+				.eq("is_deleted", false)
+				.not("last_accessed_at", "is", null);
+
+			sharedData = shared || [];
+		}
+	} catch {
+		// activity_logs query is non-critical; return only owned canvases
+	}
+
+	// 3. Merge, deduplicate (just in case), and sort globally
+	const allRecent = [...(ownedData || []), ...sharedData];
+
+	const dedupedMap = new Map<string, Tables<"canvases">>();
+	for (const canvas of allRecent) {
+		if (!dedupedMap.has(canvas.id)) {
+			dedupedMap.set(canvas.id, canvas);
+		}
+	}
+
+	const dedupedRecent = Array.from(dedupedMap.values());
+	dedupedRecent.sort((a, b) => {
+		return (
+			new Date(b.last_accessed_at || 0).getTime() -
+			new Date(a.last_accessed_at || 0).getTime()
+		);
+	});
+
+	return dedupedRecent.slice(0, limit);
 };
 
 export const touchCanvasAccessService = async (
@@ -536,4 +589,94 @@ export const toggleArchiveCanvasService = async (
 	if (error) {
 		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
+};
+
+export const toggleStarService = async (
+	canvasId: string,
+	userId: string,
+	isStarred: boolean,
+): Promise<void> => {
+	const { error } = await getClient()
+		.from("canvases")
+		.update({ is_starred: isStarred })
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+};
+
+export const getStarredCanvasesService = async (
+	userId: string,
+): Promise<
+	Pick<
+		Tables<"canvases">,
+		"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+	>[]
+> => {
+	// First get all owned canvases that are starred
+	const { data: ownedStarred, error: ownedError } = await getClient()
+		.from("canvases")
+		.select("id, name, thumbnail_url, owner_id, updated_at, is_starred")
+		.eq("owner_id", userId)
+		.eq("is_deleted", false)
+		.eq("is_starred", true);
+
+	if (ownedError) {
+		throw new HttpError(ownedError.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	// Get shared canvases that the user has interacted with and are starred
+	// Since stars are global for now (per canvas, not per user-canvas relation)
+	// We'll trust the access map. If star is user-specific, we'd need a different schema.
+	// We assume `is_starred` is currently on the `canvases` table, so it's global for the canvas.
+	const { data: accessLogs } = await getClient()
+		.from("activity_logs")
+		.select("canvas_id")
+		.eq("user_id", userId);
+
+	const accessedIds = [
+		...new Set(
+			(accessLogs || [])
+				.map((log) => log.canvas_id)
+				.filter((id) => !(ownedStarred || []).some((c) => c.id === id)),
+		),
+	];
+
+	let sharedStarred: Pick<
+		Tables<"canvases">,
+		"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+	>[] = [];
+	if (accessedIds.length > 0) {
+		const { data: shared } = await getClient()
+			.from("canvases")
+			.select("id, name, thumbnail_url, owner_id, updated_at, is_starred")
+			.in("id", accessedIds)
+			.eq("is_deleted", false)
+			.eq("is_starred", true);
+
+		sharedStarred = shared || [];
+	}
+
+	const allStarred = [...(ownedStarred || []), ...sharedStarred];
+
+	// Deduplicate just in case
+	const dedupedMap = new Map<
+		string,
+		Pick<
+			Tables<"canvases">,
+			"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+		>
+	>();
+	for (const canvas of allStarred) {
+		if (!dedupedMap.has(canvas.id)) {
+			dedupedMap.set(canvas.id, canvas);
+		}
+	}
+
+	const result = Array.from(dedupedMap.values());
+	result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+	return result;
 };

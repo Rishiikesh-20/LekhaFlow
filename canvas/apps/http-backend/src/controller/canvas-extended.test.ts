@@ -28,6 +28,8 @@ vi.mock("../services/canvas.js", () => ({
 	updateCanvasService: vi.fn(),
 	deleteCanvasService: vi.fn(),
 	searchCanvasesService: vi.fn(),
+	toggleStarService: vi.fn(),
+	getStarredCanvasesService: vi.fn(),
 }));
 
 import { globalErrorHandler } from "../error/error";
@@ -37,7 +39,9 @@ import {
 	deleteCanvasService,
 	getCanvasesService,
 	getCanvasService,
+	getStarredCanvasesService,
 	searchCanvasesService,
+	toggleStarService,
 	updateCanvasService,
 } from "../services/canvas.js";
 import { createServiceClient } from "../supabase.server";
@@ -49,6 +53,8 @@ const updateCanvasServiceMock = updateCanvasService as Mock;
 const deleteCanvasServiceMock = deleteCanvasService as Mock;
 const createCanvasServiceMock = createCanvasService as Mock;
 const searchCanvasesServiceMock = searchCanvasesService as Mock;
+const toggleStarServiceMock = toggleStarService as Mock;
+const getStarredCanvasesServiceMock = getStarredCanvasesService as Mock;
 
 const createTestApp = () => {
 	const app = express();
@@ -452,5 +458,149 @@ describe("GET /api/v1/canvas/search", () => {
 		expect(res.status).toBe(200);
 		expect(res.body.data.canvases).toEqual([]);
 		expect(res.body.data.total).toBe(0);
+	});
+});
+
+// ============================================================================
+// PATCH /api/v1/canvas/:roomId/star — Toggle star
+// ============================================================================
+
+describe("PATCH /api/v1/canvas/:roomId/star", () => {
+	let app: express.Express;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		app = createTestApp();
+	});
+
+	it("returns 401 without auth header", async () => {
+		const res = await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.send({ isStarred: true });
+		expect(res.status).toBe(401);
+	});
+
+	it("returns 400 if isStarred is missing", async () => {
+		mockAuthSuccess();
+
+		const res = await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.set("Authorization", "Bearer valid-token")
+			.send({});
+
+		expect(res.status).toBe(400);
+		expect(res.body.message).toContain("Validation Failed");
+	});
+
+	it("returns 400 if isStarred is not a boolean", async () => {
+		mockAuthSuccess();
+
+		const res = await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.set("Authorization", "Bearer valid-token")
+			.send({ isStarred: "yes" });
+
+		expect(res.status).toBe(400);
+	});
+
+	it("returns 200 when starring a canvas", async () => {
+		mockAuthSuccess();
+		toggleStarServiceMock.mockResolvedValue(undefined);
+
+		const res = await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.set("Authorization", "Bearer valid-token")
+			.send({ isStarred: true });
+
+		expect(res.status).toBe(200);
+		expect(res.body.message).toContain("starred");
+	});
+
+	it("returns 200 when unstarring a canvas", async () => {
+		mockAuthSuccess();
+		toggleStarServiceMock.mockResolvedValue(undefined);
+
+		const res = await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.set("Authorization", "Bearer valid-token")
+			.send({ isStarred: false });
+
+		expect(res.status).toBe(200);
+		expect(res.body.message).toContain("unstarred");
+	});
+
+	it("calls toggleStarService with correct args", async () => {
+		mockAuthSuccess("user-xyz");
+		toggleStarServiceMock.mockResolvedValue(undefined);
+
+		await request(app)
+			.patch("/api/v1/canvas/room-abc/star")
+			.set("Authorization", "Bearer valid-token")
+			.send({ isStarred: true });
+
+		expect(toggleStarServiceMock).toHaveBeenCalledWith(
+			"room-abc",
+			"user-xyz",
+			true,
+		);
+	});
+});
+
+// ============================================================================
+// GET /api/v1/canvas/starred — Get starred canvases
+// ============================================================================
+
+describe("GET /api/v1/canvas/starred", () => {
+	let app: express.Express;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		app = createTestApp();
+	});
+
+	it("returns 401 without auth header", async () => {
+		const res = await request(app).get("/api/v1/canvas/starred");
+		expect(res.status).toBe(401);
+	});
+
+	it("returns empty array when no canvases are starred", async () => {
+		mockAuthSuccess();
+		getStarredCanvasesServiceMock.mockResolvedValue([]);
+
+		const res = await request(app)
+			.get("/api/v1/canvas/starred")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(res.status).toBe(200);
+		expect(res.body.data.canvases).toEqual([]);
+	});
+
+	it("returns starred canvases with only id and name", async () => {
+		mockAuthSuccess();
+		getStarredCanvasesServiceMock.mockResolvedValue([
+			{ id: "c1", name: "Master Plan" },
+			{ id: "c2", name: "Sprint Board" },
+		]);
+
+		const res = await request(app)
+			.get("/api/v1/canvas/starred")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(res.status).toBe(200);
+		expect(res.body.data.canvases).toHaveLength(2);
+		expect(res.body.data.canvases[0].name).toBe("Master Plan");
+		// Should only have id and name (performance check)
+		expect(Object.keys(res.body.data.canvases[0])).toEqual(["id", "name"]);
+	});
+
+	it("passes userId to service", async () => {
+		mockAuthSuccess("user-abc");
+		getStarredCanvasesServiceMock.mockResolvedValue([]);
+
+		await request(app)
+			.get("/api/v1/canvas/starred")
+			.set("Authorization", "Bearer valid-token");
+
+		expect(getStarredCanvasesServiceMock).toHaveBeenCalledWith("user-abc");
 	});
 });
