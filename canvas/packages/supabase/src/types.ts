@@ -118,6 +118,15 @@ export interface Database {
 					canvas_id: string;
 					action: string;
 					created_at: string;
+					is_deleted: boolean | null;
+					is_public: boolean | null;
+					is_starred: boolean;
+					last_accessed_at: string | null;
+					name: string;
+					owner_id: string;
+					slug: string | null;
+					thumbnail_url: string | null;
+					updated_at: string | null;
 				};
 				Insert: {
 					id?: string;
@@ -125,6 +134,15 @@ export interface Database {
 					canvas_id: string;
 					action: string;
 					created_at?: string;
+					is_deleted?: boolean | null;
+					is_public?: boolean | null;
+					is_starred?: boolean;
+					last_accessed_at?: string | null;
+					name: string;
+					owner_id: string;
+					slug?: string | null;
+					thumbnail_url?: string | null;
+					updated_at?: string | null;
 				};
 				Update: {
 					id?: string;
@@ -132,6 +150,15 @@ export interface Database {
 					canvas_id?: string;
 					action?: string;
 					created_at?: string;
+					is_deleted?: boolean | null;
+					is_public?: boolean | null;
+					is_starred?: boolean;
+					last_accessed_at?: string | null;
+					name?: string;
+					owner_id?: string;
+					slug?: string | null;
+					thumbnail_url?: string | null;
+					updated_at?: string | null;
 				};
 			};
 			users: {

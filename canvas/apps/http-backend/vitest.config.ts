@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -12,6 +13,22 @@ export default defineConfig({
 			SUPABASE_ANON_KEY: "test-anon-key",
 			NODE_ENV: "test",
 			WS_PORT: "8080",
+		},
+	},
+	resolve: {
+		alias: {
+			"@repo/http-core": path.resolve(
+				__dirname,
+				"../../packages/http-core/src/index.ts",
+			),
+			"@repo/common": path.resolve(
+				__dirname,
+				"../../packages/common/src/index.ts",
+			),
+			"@repo/supabase": path.resolve(
+				__dirname,
+				"../../packages/supabase/src/index.ts",
+			),
 		},
 	},
 });
