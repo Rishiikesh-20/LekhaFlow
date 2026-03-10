@@ -26,6 +26,9 @@ export interface Database {
 					is_public: boolean;
 					folder_id: string | null;
 					is_deleted: boolean;
+					is_archived: boolean;
+					is_starred: boolean;
+					last_accessed_at: string | null;
 					created_at: string;
 					updated_at: string;
 					deleted_at: string | null;
@@ -40,6 +43,9 @@ export interface Database {
 					is_public?: boolean;
 					folder_id?: string | null;
 					is_deleted?: boolean;
+					is_archived?: boolean;
+					is_starred?: boolean;
+					last_accessed_at?: string | null;
 					created_at?: string;
 					updated_at?: string;
 					deleted_at?: string | null;
@@ -54,9 +60,49 @@ export interface Database {
 					is_public?: boolean;
 					folder_id?: string | null;
 					is_deleted?: boolean;
+					is_archived?: boolean;
+					is_starred?: boolean;
+					last_accessed_at?: string | null;
 					created_at?: string;
 					updated_at?: string;
 					deleted_at?: string | null;
+				};
+			};
+			tags: {
+				Row: {
+					id: string;
+					name: string;
+					color: string;
+					created_at: string;
+				};
+				Insert: {
+					id?: string;
+					name: string;
+					color?: string;
+					created_at?: string;
+				};
+				Update: {
+					id?: string;
+					name?: string;
+					color?: string;
+					created_at?: string;
+				};
+			};
+			tags_on_canvases: {
+				Row: {
+					canvas_id: string;
+					tag_id: string;
+					created_at: string;
+				};
+				Insert: {
+					canvas_id: string;
+					tag_id: string;
+					created_at?: string;
+				};
+				Update: {
+					canvas_id?: string;
+					tag_id?: string;
+					created_at?: string;
 				};
 			};
 			folders: {
