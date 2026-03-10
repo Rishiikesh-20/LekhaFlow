@@ -660,16 +660,22 @@ export function beautifyElements(
 	const newElements: CanvasElement[] = [];
 
 	for (const el of elements) {
-		if (el.type !== "freedraw") continue;
+		if (el.type !== "freedraw" && (el.type as string) !== "freehand") {
+			continue;
+		}
 		const fd = el as FreedrawElement;
 
 		// Need at least a few points to detect a shape
-		if (fd.points.length < 4) continue;
+		if (fd.points.length < 3) {
+			continue;
+		}
 
 		const detection = detectShape(fd);
 
-		// Only beautify if confidence is reasonable
-		if (detection.confidence < 0.35) continue;
+		// Accept any reasonable detection
+		if (detection.confidence < 0.2) {
+			continue;
+		}
 
 		const clean = buildCleanElement(fd, detection, getNextZIndex());
 		removedIds.push(fd.id);

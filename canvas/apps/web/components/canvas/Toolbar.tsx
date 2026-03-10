@@ -91,12 +91,11 @@ export function Toolbar() {
 	const isArchived = useCanvasStore((state) => state.isArchived);
 
 	return (
-		<div className="absolute left-1/2 top-[72px] sm:top-4 -translate-x-1/2 z-[var(--z-toolbar)] max-w-[calc(100vw-32px)]">
+		<div className="absolute left-1/2 top-[72px] sm:top-4 -translate-x-1/2 z-[var(--z-toolbar)] max-w-[calc(100vw-16px)] sm:max-w-[calc(100vw-32px)]">
 			<div
-				className="glass-card-elevated flex items-center gap-1 px-2 py-2 overflow-x-auto scrollbar-hide"
+				className="glass-card-elevated flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-1.5 sm:py-2 overflow-x-auto scrollbar-hide"
 				style={{
 					borderRadius: "28px",
-					height: "56px",
 					boxShadow: "var(--shadow-lg)",
 					animation: "fade-in 0.3s ease-out, slide-in-top 0.3s ease-out",
 				}}
@@ -116,7 +115,7 @@ export function Toolbar() {
 								: "Lock Canvas (L)"
 					}
 					className={`
-						relative w-10 h-10 rounded-lg flex items-center justify-center
+						relative w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center flex-shrink-0
 						transition-all duration-150 border-none group
 						${
 							isArchived
@@ -131,6 +130,7 @@ export function Toolbar() {
 					{isReadOnly ? <Lock size={18} /> : <Unlock size={18} />}
 					<div
 						className={`
+							tool-shortcut-badge
 							absolute -bottom-1 -right-1
 							w-4 h-4 rounded flex items-center justify-center
 							text-[10px] font-mono font-medium
@@ -148,7 +148,7 @@ export function Toolbar() {
 				</button>
 
 				{/* Separator after lock */}
-				<div className="h-6 w-px bg-gray-200 mx-1" />
+				<div className="h-6 w-px bg-gray-200 mx-0.5 sm:mx-1 flex-shrink-0" />
 
 				{TOOLS.map((tool, index) => {
 					const isActive = activeTool === tool.id && !isReadOnly;
@@ -156,10 +156,12 @@ export function Toolbar() {
 					return (
 						<React.Fragment key={`${tool.id}-${index}`}>
 							{/* Separator after hand+selection tools (after index 1) */}
-							{index === 2 && <div className="h-6 w-px bg-gray-200 mx-1" />}
+							{index === 2 && (
+								<div className="h-6 w-px bg-gray-200 mx-0.5 sm:mx-1 flex-shrink-0" />
+							)}
 							{/* Separator before eraser (before last tool) */}
 							{index === TOOLS.length - 1 && (
-								<div className="h-6 w-px bg-gray-200 mx-1" />
+								<div className="h-6 w-px bg-gray-200 mx-0.5 sm:mx-1 flex-shrink-0" />
 							)}
 
 							<button
@@ -172,7 +174,7 @@ export function Toolbar() {
 								disabled={isDisabled}
 								title={`${tool.label} (${tool.shortcut})${isDisabled ? " — Canvas is locked" : ""}`}
 								className={`
-									relative w-10 h-10 rounded-lg flex items-center justify-center
+									relative w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center flex-shrink-0
 									transition-all duration-150 border-none group
 									${
 										isDisabled
@@ -188,9 +190,10 @@ export function Toolbar() {
 							>
 								{tool.icon}
 
-								{/* Keyboard shortcut badge */}
+								{/* Keyboard shortcut badge — hidden on mobile via CSS */}
 								<div
 									className={`
+										tool-shortcut-badge
 										absolute -bottom-1 -right-1 
 										w-4 h-4 rounded flex items-center justify-center
 										text-[10px] font-mono font-medium

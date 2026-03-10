@@ -22,9 +22,12 @@ interface CollaboratorCursorProps {
 }
 
 function CollaboratorCursor({ collaborator }: CollaboratorCursorProps) {
-	const { cursor, name, color } = collaborator;
+	const { cursor, name, color, isCurrentUser } = collaborator;
 
 	if (!cursor) return null;
+
+	// Don't render anything for the current user — they already see their OS cursor
+	if (isCurrentUser) return null;
 
 	return (
 		<div
@@ -62,16 +65,28 @@ function CollaboratorCursor({ collaborator }: CollaboratorCursorProps) {
 
 interface CollaboratorCursorsProps {
 	collaborators: Collaborator[];
+	/** Current user's own display name — used to suppress self-rendering */
+	myName?: string;
 }
 
 export function CollaboratorCursors({
 	collaborators,
+	myName,
 }: CollaboratorCursorsProps) {
 	return (
 		<div className="absolute inset-0 pointer-events-none overflow-hidden z-[100]">
-			{collaborators.map((collaborator) => (
-				<CollaboratorCursor key={collaborator.id} collaborator={collaborator} />
-			))}
+			{collaborators
+				.filter(
+					(c) =>
+						// Hide the local user by isCurrentUser flag or by name match
+						!c.isCurrentUser && (!myName || c.name !== myName),
+				)
+				.map((collaborator) => (
+					<CollaboratorCursor
+						key={collaborator.id}
+						collaborator={collaborator}
+					/>
+				))}
 		</div>
 	);
 }

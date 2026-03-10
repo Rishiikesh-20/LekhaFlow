@@ -24,10 +24,8 @@ export function BeautifyButton({ visible, onBeautify }: BeautifyButtonProps) {
 
 	return (
 		<div
-			className="fixed z-[var(--z-toolbar)]"
+			className="fixed z-[var(--z-toolbar)] bottom-3 left-3 sm:bottom-4 sm:left-4"
 			style={{
-				bottom: "16px",
-				left: "16px",
 				animation: "fade-in 0.2s ease-out, slide-in-bottom 0.25s ease-out",
 			}}
 		>

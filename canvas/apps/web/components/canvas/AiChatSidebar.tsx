@@ -392,12 +392,12 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 
 	return (
 		<>
-			{/* Toggle Button — bottom-right area */}
+			{/* Toggle Button — positioned left of RoomChat button */}
 			<button
 				type="button"
 				onClick={() => setOpen(!isOpen)}
 				title="AI Diagram Assistant"
-				className="fixed right-4 bottom-16 z-30 w-10 h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
+				className="fixed right-[52px] sm:right-[60px] bottom-[120px] sm:bottom-[140px] z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
 				style={{
 					background: isOpen
 						? "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)"
@@ -416,7 +416,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 			<div
 				className="fixed top-0 right-0 h-full z-40 flex flex-col transition-transform duration-300 ease-out"
 				style={{
-					width: 380,
+					width: "min(380px, 100vw)",
 					transform: isOpen ? "translateX(0)" : "translateX(100%)",
 					background: "rgba(255,255,255,0.97)",
 					backdropFilter: "blur(20px)",
