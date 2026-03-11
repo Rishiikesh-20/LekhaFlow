@@ -22,6 +22,7 @@ import {
 	type ElementType,
 	type EllipseElement,
 	type FreedrawElement,
+	type ImageElement,
 	type LineElement,
 	type Point,
 	type RectangleElement,
@@ -343,6 +344,48 @@ export function createText(
 	} as TextElement;
 }
 
+/**
+ * Create an image element from a data URL or remote URL
+ *
+ * @param x - X position on canvas
+ * @param y - Y position on canvas
+ * @param imageUrl - Data URL (base64) or remote URL of the image
+ * @param naturalWidth - Intrinsic width of the image
+ * @param naturalHeight - Intrinsic height of the image
+ * @param options - Override options
+ */
+export function createImage(
+	x: number,
+	y: number,
+	imageUrl: string,
+	naturalWidth: number,
+	naturalHeight: number,
+	options: Partial<ImageElement> = {},
+): ImageElement {
+	// Scale image to a reasonable canvas size (max 800px on the longest side)
+	const maxDim = 800;
+	let width = naturalWidth;
+	let height = naturalHeight;
+	if (width > maxDim || height > maxDim) {
+		const scale = maxDim / Math.max(width, height);
+		width = Math.round(width * scale);
+		height = Math.round(height * scale);
+	}
+
+	return {
+		...createBaseElement("image", x, y, options),
+		type: "image",
+		width: options.width ?? width,
+		height: options.height ?? height,
+		imageUrl,
+		naturalWidth,
+		naturalHeight,
+		strokeColor: options.strokeColor ?? "transparent",
+		backgroundColor: options.backgroundColor ?? "transparent",
+		strokeWidth: options.strokeWidth ?? 0,
+	} as ImageElement;
+}
+
 // ============================================================================
 // BOUNDING BOX CALCULATIONS
 // ============================================================================
@@ -515,6 +558,7 @@ export function isPointInElement(
 	switch (element.type) {
 		case "rectangle":
 		case "text":
+		case "image":
 			return isPointInRectangle(testPoint, element, threshold);
 
 		case "ellipse":

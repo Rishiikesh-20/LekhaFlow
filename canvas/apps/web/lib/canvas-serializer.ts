@@ -159,7 +159,10 @@ export function serializeCanvasForAI(
 	// Separate elements by type
 	const shapes = allElements.filter(
 		(el) =>
-			el.type === "rectangle" || el.type === "ellipse" || el.type === "diamond",
+			el.type === "rectangle" ||
+			el.type === "ellipse" ||
+			el.type === "diamond" ||
+			el.type === "image",
 	);
 	const arrows = allElements.filter(
 		(el) => el.type === "arrow",

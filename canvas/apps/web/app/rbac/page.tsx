@@ -78,10 +78,15 @@ export default function RBACDashboard() {
 				// Fetch user roles
 				const { data: urData, error: urError } = await supabase
 					.from("user_roles")
-					.select("user_id, role_id, users(name, email), roles(*)");
+					.select("user_id, role_id, users!user_id(name, email), roles(*)");
 
 				if (urError) {
-					console.error("User roles query error:", urError);
+					console.error(
+						"User roles query error:",
+						urError.message,
+						urError.code,
+						urError.details,
+					);
 					// Don't throw - just show empty user roles
 				}
 
