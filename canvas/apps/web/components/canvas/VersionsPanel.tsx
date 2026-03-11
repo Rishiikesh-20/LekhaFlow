@@ -62,6 +62,7 @@ function elementTypeLabel(type: string): string {
 		arrow: "Arrow",
 		freedraw: "Drawing",
 		text: "Text",
+		image: "Image",
 	};
 	return map[type] || type;
 }

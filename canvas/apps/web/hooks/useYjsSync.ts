@@ -315,6 +315,7 @@ export function useYjsSync(
 				arrow: "Arrow",
 				freedraw: "Drawing",
 				text: "Text",
+				image: "Image",
 			};
 			return labels[type] || type;
 		};

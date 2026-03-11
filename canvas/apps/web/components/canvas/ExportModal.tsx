@@ -422,6 +422,14 @@ export function ExportModal({
 					}
 					break;
 				}
+				case "image": {
+					// Export image as an embedded <image> element in SVG
+					const imgEl = el as { imageUrl?: string };
+					if (imgEl.imageUrl) {
+						svg += `<image x="${x}" y="${y}" width="${Math.abs(el.width)}" height="${Math.abs(el.height)}" href="${imgEl.imageUrl}" opacity="${opacity}"${transform} preserveAspectRatio="none"/>`;
+					}
+					break;
+				}
 			}
 		}
 

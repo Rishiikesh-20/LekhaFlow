@@ -48,6 +48,7 @@ import type {
 	ArrowElement,
 	CanvasElement,
 	FreedrawElement,
+	ImageElement,
 	LineElement,
 	Point,
 	TextElement,
@@ -93,6 +94,7 @@ import { classifyDiagram, type DiagramType } from "../lib/diagram-classifier";
 import {
 	createArrow,
 	createFreedraw,
+	createImage,
 	createLine,
 	createShape,
 	createText,
@@ -164,6 +166,77 @@ interface CanvasProps {
 }
 
 // ============================================================================
+// HELPER: IMAGE RENDERER (React component for async image loading)
+// ============================================================================
+
+/**
+ * Renders an ImageElement using Konva's Image.
+ * Loads the image source asynchronously and caches it.
+ */
+function ImageRenderer({
+	element,
+	commonProps,
+	selectionProps,
+}: {
+	element: ImageElement;
+	commonProps: Record<string, unknown>;
+	selectionProps: Record<string, unknown>;
+}) {
+	const [img, setImg] = useState<HTMLImageElement | null>(null);
+
+	useEffect(() => {
+		const image = new window.Image();
+		image.crossOrigin = "anonymous";
+		image.onload = () => setImg(image);
+		image.onerror = () => {
+			console.warn("Failed to load image element:", element.id);
+		};
+		image.src = element.imageUrl;
+
+		return () => {
+			image.onload = null;
+			image.onerror = null;
+		};
+	}, [element.imageUrl, element.id]);
+
+	if (!img) {
+		// Show a placeholder rectangle while the image loads
+		return (
+			<Rect
+				key={element.id}
+				{...commonProps}
+				{...selectionProps}
+				x={element.x + element.width / 2}
+				y={element.y + element.height / 2}
+				width={element.width}
+				height={element.height}
+				offsetX={element.width / 2}
+				offsetY={element.height / 2}
+				fill="#f0f0f0"
+				stroke="#ccc"
+				strokeWidth={1}
+				dash={[4, 4]}
+			/>
+		);
+	}
+
+	return (
+		<KonvaImage
+			key={element.id}
+			{...commonProps}
+			{...selectionProps}
+			x={element.x + element.width / 2}
+			y={element.y + element.height / 2}
+			width={element.width}
+			height={element.height}
+			offsetX={element.width / 2}
+			offsetY={element.height / 2}
+			image={img}
+		/>
+	);
+}
+
+// ============================================================================
 // HELPER: RENDER ELEMENT
 // ============================================================================
 
@@ -204,7 +277,8 @@ function renderElement(
 				element.type === "rectangle" ||
 				element.type === "ellipse" ||
 				element.type === "diamond" ||
-				element.type === "text"
+				element.type === "text" ||
+				element.type === "image"
 			) {
 				finalX = e.target.x() - element.width / 2;
 				finalY = e.target.y() - element.height / 2;
@@ -773,8 +847,8 @@ function renderElement(
 				const brushOpts = {
 					size: element.strokeWidth * 2,
 					seedId: freedrawElement.seedId,
-					streamline: 0,
-					smoothing: 0,
+					streamline: 0.5,
+					smoothing: 0.5,
 				};
 				const layers = getCachedLayers(brush, brushPoints, brushOpts);
 				if (layers.length > 1) {
@@ -838,12 +912,12 @@ function renderElement(
 				);
 			}
 
-			// Fallback to perfect-freehand for unknown brush types — raw input, no smoothing
+			// Fallback to perfect-freehand for unknown brush types
 			const pathData = outlineToSvgPath(points, {
 				size: element.strokeWidth * 2,
 				thinning: 0.5,
-				smoothing: 0,
-				streamline: 0,
+				smoothing: 0.5,
+				streamline: 0.5,
 				simulatePressure: true,
 			});
 			return (
@@ -1028,6 +1102,18 @@ function renderElement(
 					fill={element.strokeColor}
 					width={element.width || undefined}
 					align={textElement.textAlign}
+				/>
+			);
+		}
+
+		case "image": {
+			const imgElement = element as ImageElement;
+			return (
+				<ImageRenderer
+					key={element.id}
+					element={imgElement}
+					commonProps={commonProps}
+					selectionProps={selectionProps}
 				/>
 			);
 		}
@@ -1414,6 +1500,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// Clipboard for copy/paste
 	const [clipboard, setClipboard] = useState<CanvasElement[]>([]);
 
+	// Whether the canvas is archived (read-only / no edits)
+	const [isArchived, setIsArchived] = useState(false);
+
 	// Attribution tooltip state (hover inspection – Story 7)
 	const [hoveredElement, setHoveredElement] = useState<CanvasElement | null>(
 		null,
@@ -1517,16 +1606,20 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	// ─────────────────────────────────────────────────────────────────
 
 	const thumbnailTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const HTTP_URL =
-		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
+	const thumbnailAbortRef = useRef<AbortController | null>(null);
+	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
 
 	useEffect(() => {
 		// Read elements so the hook runs on elements change without lint failing
 		const _ = elements;
 
-		// Clear previous timer on every element change
+		// Clear previous timer and abort any in-flight fetch on every element change
 		if (thumbnailTimerRef.current) {
 			clearTimeout(thumbnailTimerRef.current);
+		}
+		if (thumbnailAbortRef.current) {
+			thumbnailAbortRef.current.abort();
+			thumbnailAbortRef.current = null;
 		}
 
 		// Wait 2s after last change, then capture & upload
@@ -1558,6 +1651,9 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				} = await supabase.auth.getSession();
 				if (!session) return;
 
+				const controller = new AbortController();
+				thumbnailAbortRef.current = controller;
+
 				const res = await fetch(
 					`${HTTP_URL}/api/v1/canvas/${roomId}/thumbnail`,
 					{
@@ -1567,24 +1663,30 @@ export function Canvas({ roomId, token }: CanvasProps) {
 							Authorization: `Bearer ${session.access_token}`,
 						},
 						body: JSON.stringify({ thumbnail_url: base64Data }),
+						signal: controller.signal,
 					},
 				);
 
 				if (!res.ok) {
-					console.error(
+					console.warn(
 						"[Thumbnail] Upload HTTP Error:",
 						res.status,
 						await res.text(),
 					);
 				}
 			} catch (err) {
-				console.error("[Thumbnail] Update failed:", err);
+				if (err instanceof Error && err.name === "AbortError") return;
+				console.warn("[Thumbnail] Update failed:", err);
 			}
 		}, 2000);
 
 		return () => {
 			if (thumbnailTimerRef.current) {
 				clearTimeout(thumbnailTimerRef.current);
+			}
+			if (thumbnailAbortRef.current) {
+				thumbnailAbortRef.current.abort();
+				thumbnailAbortRef.current = null;
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2101,7 +2203,7 @@ export function Canvas({ roomId, token }: CanvasProps) {
 	}, [selectedElementIds, elements]);
 
 	/**
-	 * Paste elements from clipboard
+	 * Paste elements from internal clipboard (previously copied canvas elements)
 	 */
 	const handlePaste = useCallback(() => {
 		if (clipboard.length === 0) return;
@@ -2131,6 +2233,112 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		// Select pasted elements
 		setSelectedElementIds(newIds);
 	}, [clipboard, addElement, setSelectedElementIds, getNextZIndex]);
+
+	/**
+	 * Handle paste from system clipboard (text and images).
+	 * Triggered by the native 'paste' DOM event (Ctrl/Cmd+V or right-click → Paste).
+	 */
+	const handleSystemPaste = useCallback(
+		(e: ClipboardEvent) => {
+			// Skip if user is typing in an input / textarea / rich-text editor
+			if (
+				e.target instanceof HTMLInputElement ||
+				e.target instanceof HTMLTextAreaElement ||
+				(e.target instanceof HTMLElement &&
+					e.target.hasAttribute("data-rich-text-editor"))
+			) {
+				return;
+			}
+
+			if (isReadOnly || isArchived) return;
+
+			const clipboardData = e.clipboardData;
+			if (!clipboardData) return;
+
+			// Calculate the center of the viewport in canvas coordinates
+			const centerX = (window.innerWidth / 2 - scrollX) / zoom;
+			const centerY = (window.innerHeight / 2 - scrollY) / zoom;
+
+			// ── Check for pasted images first ──
+			const imageItem = Array.from(clipboardData.items).find((item) =>
+				item.type.startsWith("image/"),
+			);
+
+			if (imageItem) {
+				e.preventDefault();
+				const blob = imageItem.getAsFile();
+				if (!blob) return;
+
+				const reader = new FileReader();
+				reader.onload = () => {
+					const dataUrl = reader.result as string;
+
+					// Load image to get natural dimensions
+					const img = new window.Image();
+					img.onload = () => {
+						const nextZ = getNextZIndex();
+						const imageElement = createImage(
+							centerX - Math.min(img.naturalWidth, 800) / 2,
+							centerY - Math.min(img.naturalHeight, 800) / 2,
+							dataUrl,
+							img.naturalWidth,
+							img.naturalHeight,
+							{ zIndex: nextZ },
+						);
+						addElement(imageElement);
+						setSelectedElementIds(new Set([imageElement.id]));
+					};
+					img.src = dataUrl;
+				};
+				reader.readAsDataURL(blob);
+				return;
+			}
+
+			// ── Check for pasted text ──
+			const text = clipboardData.getData("text/plain");
+			if (text && text.trim().length > 0) {
+				e.preventDefault();
+
+				// If we have internal clipboard items, prefer those (user copied on canvas then pasted)
+				if (clipboard.length > 0) {
+					handlePaste();
+					return;
+				}
+
+				const nextZ = getNextZIndex();
+				const textElement = createText(
+					centerX - 100,
+					centerY - 20,
+					text.trim(),
+					{
+						zIndex: nextZ,
+						fontSize: 20,
+					},
+				);
+				addElement(textElement);
+				setSelectedElementIds(new Set([textElement.id]));
+				return;
+			}
+
+			// Fall back to internal clipboard paste
+			if (clipboard.length > 0) {
+				e.preventDefault();
+				handlePaste();
+			}
+		},
+		[
+			isReadOnly,
+			isArchived,
+			scrollX,
+			scrollY,
+			zoom,
+			clipboard,
+			addElement,
+			setSelectedElementIds,
+			getNextZIndex,
+			handlePaste,
+		],
+	);
 
 	/**
 	 * Bring selected elements forward one level.
@@ -2262,15 +2470,15 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		[isReadOnly, selectedElementIds, elements],
 	);
 
-	const [isArchived, setIsArchived] = useState(false);
-
 	// Fetch canvas metadata
 	useEffect(() => {
+		const controller = new AbortController();
 		const fetchMetadata = async () => {
 			if (!token) return;
 			try {
 				const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}`, {
 					headers: { Authorization: `Bearer ${token}` },
+					signal: controller.signal,
 				});
 				if (res.ok) {
 					const json = await res.json();
@@ -2281,10 +2489,12 @@ export function Canvas({ roomId, token }: CanvasProps) {
 					}
 				}
 			} catch (e) {
-				console.error("Failed to fetch canvas metadata:", e);
+				if (e instanceof Error && e.name === "AbortError") return;
+				console.warn("[Canvas] Failed to fetch canvas metadata:", e);
 			}
 		};
 		fetchMetadata();
+		return () => controller.abort();
 	}, [roomId, token, HTTP_URL, setReadOnly]);
 
 	/**
@@ -2550,10 +2760,10 @@ export function Canvas({ roomId, token }: CanvasProps) {
 				return;
 			}
 
-			// Paste: Ctrl/Cmd + V
+			// Paste: Ctrl/Cmd + V — let the native 'paste' event fire so
+			// handleSystemPaste can access clipboardData (images, external text).
+			// Do NOT preventDefault here.
 			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-				e.preventDefault();
-				handlePaste();
 				return;
 			}
 
@@ -2649,6 +2859,17 @@ export function Canvas({ roomId, token }: CanvasProps) {
 		updateEditingElement,
 		handleBeautify,
 	]);
+
+	// ─────────────────────────────────────────────────────────────────
+	// SYSTEM CLIPBOARD PASTE LISTENER
+	// Handles pasting text and images from the OS clipboard.
+	// ─────────────────────────────────────────────────────────────────
+
+	useEffect(() => {
+		const onPaste = (e: Event) => handleSystemPaste(e as ClipboardEvent);
+		window.addEventListener("paste", onPaste);
+		return () => window.removeEventListener("paste", onPaste);
+	}, [handleSystemPaste]);
 
 	// ─────────────────────────────────────────────────────────────────
 	// EVENT HANDLERS
