@@ -20,7 +20,15 @@
 "use client";
 
 import type Konva from "konva";
-import { Bot, MessageSquare, Send, Sparkles, Trash2, X } from "lucide-react";
+import {
+	BookOpen,
+	Bot,
+	MessageSquare,
+	Send,
+	Sparkles,
+	Trash2,
+	X,
+} from "lucide-react";
 import {
 	type RefObject,
 	useCallback,
@@ -47,7 +55,7 @@ import { useCanvasStore } from "../../store/canvas-store";
  * Returns `true` when the message looks like an imperative instruction
  * such as "fill all circles with green" or "delete the red rectangles".
  */
-function isActionIntent(message: string): boolean {
+export function isActionIntent(message: string): boolean {
 	const lower = message.toLowerCase().trim();
 
 	// Strong action verbs that almost always signal a modification request
@@ -139,6 +147,20 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 	const [input, setInputState] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [isBeginnerExplainMode, setIsBeginnerExplainMode] = useState(() => {
+		if (typeof window !== "undefined") {
+			return localStorage.getItem("lekhaflow-beginner-mode") === "true";
+		}
+		return false;
+	});
+
+	// Persist beginner mode preference
+	useEffect(() => {
+		localStorage.setItem(
+			"lekhaflow-beginner-mode",
+			String(isBeginnerExplainMode),
+		);
+	}, [isBeginnerExplainMode]);
 
 	// Expose setInput via ref so child components can use it
 	const setInput = useCallback((val: string) => setInputState(val), []);
@@ -241,6 +263,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 						prompt: question,
 						canvasContext,
 						canvasImage: canvasImageBase64,
+						explainLikeImNew: isBeginnerExplainMode,
 					}),
 				});
 
@@ -315,6 +338,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 						canvasContext,
 						canvasImage: canvasImageBase64,
 						history,
+						explainLikeImNew: isBeginnerExplainMode,
 					}),
 				});
 
@@ -366,6 +390,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 		stageRef,
 		updateElement,
 		deleteElements,
+		isBeginnerExplainMode,
 	]);
 
 	// Handle keyboard shortcuts
@@ -392,12 +417,12 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 
 	return (
 		<>
-			{/* Toggle Button — bottom-right area */}
+			{/* Toggle Button — positioned left of RoomChat button */}
 			<button
 				type="button"
 				onClick={() => setOpen(!isOpen)}
 				title="AI Diagram Assistant"
-				className="fixed right-4 bottom-16 z-30 w-10 h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
+				className="fixed right-[52px] sm:right-[60px] bottom-[120px] sm:bottom-[140px] z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
 				style={{
 					background: isOpen
 						? "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)"
@@ -416,7 +441,7 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 			<div
 				className="fixed top-0 right-0 h-full z-40 flex flex-col transition-transform duration-300 ease-out"
 				style={{
-					width: 380,
+					width: "min(380px, 100vw)",
 					transform: isOpen ? "translateX(0)" : "translateX(100%)",
 					background: "rgba(255,255,255,0.97)",
 					backdropFilter: "blur(20px)",
@@ -453,6 +478,21 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 						</div>
 					</div>
 					<div className="flex items-center gap-1">
+						<button
+							type="button"
+							onClick={() => setIsBeginnerExplainMode((v) => !v)}
+							title="Explains the diagram in simpler terms for beginners"
+							className="flex items-center gap-1 px-2 py-1 rounded-lg border-none cursor-pointer transition-all text-[11px] font-medium"
+							style={{
+								background: isBeginnerExplainMode
+									? "rgba(124,58,237,0.12)"
+									: "rgba(0,0,0,0.04)",
+								color: isBeginnerExplainMode ? "#7c3aed" : "#9ca3af",
+							}}
+						>
+							<BookOpen size={12} />
+							<span>Beginner</span>
+						</button>
 						{messages.length > 0 && (
 							<button
 								type="button"
@@ -565,6 +605,9 @@ export function AiChatSidebar({ stageRef }: AiChatSidebarProps) {
 					</div>
 					<p className="text-[10px] text-gray-400 mt-1.5 px-1">
 						Powered by Gemini • Enter to send, Shift+Enter for new line
+						{isBeginnerExplainMode && (
+							<span className="text-violet-400"> • Beginner mode on</span>
+						)}
 					</p>
 				</div>
 			</div>

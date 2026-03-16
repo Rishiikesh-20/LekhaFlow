@@ -20,34 +20,10 @@
 import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 import { type NextRequest, NextResponse } from "next/server";
 
+import { getSystemPrompt } from "../../../lib/ai-chat-prompts";
+
 // Allow longer AI generation time
 export const maxDuration = 60; // seconds
-
-// ============================================================================
-// SYSTEM PROMPT (updated for vision)
-// ============================================================================
-
-const SYSTEM_PROMPT = `You are an AI assistant that helps users understand diagrams, drawings, and flowcharts on a collaborative canvas application called LekhaFlow.
-
-You will receive:
-1. A **screenshot** (PNG image) of the current canvas — this is the primary source of truth.
-2. Optional **structured metadata** (JSON) describing shapes, connections, and text labels that were placed programmatically.
-
-Your job is to:
-1. **Look at the image first.** Identify every visual element — shapes, freehand drawings, icons, text, arrows, colours, spatial layout.
-2. Use the structured metadata as supplementary context (it may miss freehand/hand-drawn content).
-3. Answer the user's questions about the diagram clearly and concisely.
-4. When describing flow, follow arrows/connections step by step.
-5. If elements look like real-world objects (houses, trees, people, etc.) drawn freehand, say so — describe what you see visually.
-6. If text labels exist, reference elements by their labels.
-7. Be helpful and conversational, but stay focused on what's actually visible.
-
-Guidelines:
-- Keep answers concise but thorough.
-- Use bullet points or numbered lists for step-by-step explanations.
-- Describe colours, positions, and spatial relationships when relevant.
-- If you are unsure what something is, describe its shape/appearance honestly.
-- Do NOT make up information that isn't visible in the image or present in the metadata.`;
 
 // ============================================================================
 // HANDLER
@@ -69,6 +45,7 @@ export async function POST(request: NextRequest) {
 
 		const body = await request.json();
 		const { question, canvasContext, canvasImage, history } = body;
+		const beginnerMode = body.explainLikeImNew === true;
 
 		if (!question || typeof question !== "string") {
 			return NextResponse.json(
@@ -189,7 +166,7 @@ export async function POST(request: NextRequest) {
 			try {
 				const model = genAI.getGenerativeModel({
 					model: modelName,
-					systemInstruction: SYSTEM_PROMPT,
+					systemInstruction: getSystemPrompt(beginnerMode),
 				});
 
 				const chat = model.startChat({ history: chatHistory });

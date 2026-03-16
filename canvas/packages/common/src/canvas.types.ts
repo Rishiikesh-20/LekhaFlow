@@ -51,7 +51,8 @@ export type ElementType =
 	| "line" // Straight line with optional arrows
 	| "arrow" // Arrow (line with arrowhead)
 	| "freedraw" // Freehand drawing path
-	| "text"; // Text element
+	| "text" // Text element
+	| "image"; // Pasted/uploaded image
 
 /**
  * Stroke style for element borders
@@ -327,6 +328,20 @@ export interface TextElement extends ExcalidrawElementBase {
 }
 
 /**
+ * Image element
+ * Displays a pasted or uploaded image on the canvas
+ */
+export interface ImageElement extends ExcalidrawElementBase {
+	type: "image";
+	/** Data URL (base64) or remote URL of the image */
+	imageUrl: string;
+	/** Natural width of the source image in pixels */
+	naturalWidth: number;
+	/** Natural height of the source image in pixels */
+	naturalHeight: number;
+}
+
+/**
  * Union type of all element types
  */
 export type CanvasElement =
@@ -336,7 +351,8 @@ export type CanvasElement =
 	| LineElement
 	| ArrowElement
 	| FreedrawElement
-	| TextElement;
+	| TextElement
+	| ImageElement;
 
 // ============================================================================
 // TOOL TYPES
@@ -373,6 +389,8 @@ export interface UserCursor {
 		odLOAcolor: string;
 	};
 	odLOAselectedElementIds?: string[];
+	laserData?: [number, number][];
+	viewport?: ViewportState;
 }
 
 /**
@@ -509,8 +527,10 @@ export interface Collaborator {
 	name: string;
 	color: string;
 	cursor: Point | null;
+	laserData?: [number, number][];
 	selectedElementIds: string[];
 	isCurrentUser: boolean;
+	viewport?: ViewportState;
 }
 
 /**

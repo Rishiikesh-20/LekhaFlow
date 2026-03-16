@@ -9,6 +9,7 @@
 "use client";
 
 import {
+	Archive,
 	ArrowLeft,
 	Check,
 	Cloud,
@@ -27,6 +28,7 @@ import {
 	Save,
 	Settings,
 	Share2,
+	ShieldAlert,
 	Trash2,
 	Users,
 	X,
@@ -38,6 +40,7 @@ import {
 	useCanvasStore,
 	useCollaboratorsArray,
 } from "../../store/canvas-store";
+import { NotificationBell } from "./NotificationBell";
 
 // ============================================================================
 // SIDEBAR MENU COMPONENT
@@ -50,6 +53,8 @@ interface SidebarMenuProps {
 	onExport?: (format: "png" | "svg" | "json") => void;
 	onImportJson?: () => void;
 	onExportDocumentation?: () => void;
+	isArchived?: boolean;
+	onToggleArchive?: () => void;
 }
 
 function SidebarMenu({
@@ -59,6 +64,8 @@ function SidebarMenu({
 	onExport,
 	onImportJson,
 	onExportDocumentation,
+	isArchived,
+	onToggleArchive,
 }: SidebarMenuProps) {
 	return (
 		<>
@@ -75,7 +82,7 @@ function SidebarMenu({
 
 			{/* Menu Card */}
 			<div
-				className={`fixed top-20 right-4 w-[300px] glass-card-elevated rounded-2xl z-50 max-h-[calc(100vh-100px)] flex flex-col transition-all duration-200 ease-out ${
+				className={`fixed top-16 sm:top-20 right-2 sm:right-4 w-[calc(100vw-16px)] sm:w-[300px] glass-card-elevated rounded-2xl z-50 max-h-[calc(100vh-80px)] flex flex-col transition-all duration-200 ease-out ${
 					isOpen
 						? "translate-y-0 scale-100 opacity-100 pointer-events-auto"
 						: "-translate-y-2.5 scale-95 opacity-0 pointer-events-none"
@@ -117,7 +124,29 @@ function SidebarMenu({
 								label="Open..."
 								shortcut="Ctrl+O"
 							/>
-							<MenuItem icon={<Save />} label="Save" shortcut="Ctrl+S" />
+							<MenuItem
+								icon={<Save />}
+								label="Save"
+								shortcut="Ctrl+S"
+								onClick={() => {
+									// Get elements from Zustand store
+									const elements = Array.from(
+										useCanvasStore.getState().elements.values(),
+									);
+									const dataStr = JSON.stringify(elements, null, 2);
+									const blob = new Blob([dataStr], {
+										type: "application/json",
+									});
+									const url = URL.createObjectURL(blob);
+									const a = document.createElement("a");
+									a.href = url;
+									a.download = `canvas-${new Date().toISOString()}.json`;
+									document.body.appendChild(a);
+									a.click();
+									document.body.removeChild(a);
+									URL.revokeObjectURL(url);
+								}}
+							/>
 						</div>
 					</div>
 
@@ -186,6 +215,14 @@ function SidebarMenu({
 							Canvas
 						</p>
 						<div className="flex flex-col gap-1">
+							<MenuItem
+								icon={<Archive />}
+								label={isArchived ? "Unarchive Canvas" : "Archive Canvas"}
+								onClick={() => {
+									onToggleArchive?.();
+									onClose();
+								}}
+							/>
 							<MenuItem
 								icon={<Trash2 />}
 								label="Clear Canvas"
@@ -277,6 +314,18 @@ interface ShareModalProps {
 
 function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 	const [copied, setCopied] = useState(false);
+	const [shareRole, setShareRole] = useState<"viewer" | "editor">("viewer");
+	const [inviteLink, setInviteLink] = useState<string | null>(null);
+	const [generating, setGenerating] = useState(false);
+	const HTTP_URL = process.env.NEXT_PUBLIC_HTTP_URL || "http://localhost:8000";
+
+	// Reset states when opened or role changes
+	useEffect(() => {
+		if (isOpen) {
+			setCopied(false);
+			setInviteLink(null);
+		}
+	}, [isOpen]);
 	const { scrollX, scrollY, zoom } = useCanvasStore();
 
 	// Build share URL with current viewport coordinates so the recipient
@@ -287,7 +336,51 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 			: "";
 
 	const handleCopy = async () => {
+		if (!roomId) return;
+
+		setGenerating(true);
+
 		try {
+			// Get fresh session token
+			const {
+				data: { session },
+			} = await supabase.auth.getSession();
+
+			let tokenToShare = "";
+
+			if (session) {
+				const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/invites`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: `Bearer ${session.access_token}`,
+					},
+					body: JSON.stringify({ role: shareRole }),
+				});
+
+				if (res.ok) {
+					const json = await res.json();
+					tokenToShare = json?.data?.inviteLink || json?.inviteLink;
+				} else {
+					// User is not authorized to generate a token, likely not the owner
+					console.warn(
+						"Failed to generate token, falling back to standard link",
+					);
+				}
+			}
+
+			// Format link, appending token if we have one
+			const baseUrl =
+				typeof window !== "undefined"
+					? `${window.location.origin}/canvas/${roomId}`
+					: "";
+
+			const urlToCopy = tokenToShare
+				? `${baseUrl}?inviteToken=${tokenToShare}`
+				: baseUrl;
+			setInviteLink(urlToCopy);
+
+			await navigator.clipboard.writeText(urlToCopy);
 			if (navigator.clipboard && window.isSecureContext) {
 				await navigator.clipboard.writeText(shareUrl);
 			} else {
@@ -309,13 +402,24 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 				document.body.removeChild(textArea);
 			}
 			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
+			setTimeout(() => {
+				setCopied(false);
+				// Small delay before clearing link to prevent layout shift during 'copied' state
+				setTimeout(() => setInviteLink(null), 300);
+			}, 2000);
 		} catch (err) {
 			console.error("Failed to copy:", err);
+		} finally {
+			setGenerating(false);
 		}
 	};
 
 	if (!isOpen) return null;
+
+	const fallbackShareUrl =
+		typeof window !== "undefined"
+			? `${window.location.origin}/canvas/${roomId}`
+			: "";
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -329,7 +433,7 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 			/>
 
 			{/* Modal Card */}
-			<div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[540px] overflow-hidden animate-scale-in">
+			<div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[calc(100vw-32px)] sm:max-w-[540px] overflow-hidden animate-scale-in">
 				{/* Gradient Header */}
 				<div className="bg-gradient-to-br from-violet-500 via-violet-600 to-indigo-600 p-6">
 					<div className="flex items-center justify-between">
@@ -358,26 +462,67 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 
 				{/* Content */}
 				<div className="p-6 flex flex-col gap-5">
+					{/* Role Selection */}
+					<div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 flex gap-3">
+						<button
+							type="button"
+							onClick={() => setShareRole("viewer")}
+							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "viewer" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
+						>
+							<ShieldAlert
+								size={16}
+								className={
+									shareRole === "viewer" ? "text-violet-500" : "text-gray-500"
+								}
+							/>
+							<span
+								className={`text-xs font-semibold ${shareRole === "viewer" ? "text-violet-700" : "text-gray-600"}`}
+							>
+								Can View
+							</span>
+						</button>
+						<button
+							type="button"
+							onClick={() => setShareRole("editor")}
+							className={`flex-1 py-2 px-3 flex flex-col items-center gap-1 rounded-xl transition ${shareRole === "editor" ? "bg-white shadow-sm ring-1 ring-violet-200" : "bg-transparent opacity-70 hover:bg-gray-100 hover:opacity-100"}`}
+						>
+							<FileText
+								size={16}
+								className={
+									shareRole === "editor" ? "text-violet-500" : "text-gray-500"
+								}
+							/>
+							<span
+								className={`text-xs font-semibold ${shareRole === "editor" ? "text-violet-700" : "text-gray-600"}`}
+							>
+								Can Edit
+							</span>
+						</button>
+					</div>
+
 					{/* Share Link */}
 					<div>
 						<p className="flex items-center gap-2 text-[13px] font-bold text-gray-700 mb-3">
 							<Link2 size={16} className="text-violet-500" />
 							Shareable Link
 						</p>
-						<div className="flex gap-2.5">
-							<div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[13px] text-gray-500 font-mono truncate">
-								{shareUrl}
+						<div className="flex flex-col sm:flex-row gap-2.5">
+							<div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 text-[13px] text-gray-500 font-mono overflow-hidden whitespace-nowrap overflow-ellipsis">
+								{inviteLink ? "Link generated" : fallbackShareUrl}
 							</div>
 							<button
 								type="button"
 								onClick={handleCopy}
+								disabled={generating}
 								className={`px-6 py-3.5 rounded-xl font-bold border-none cursor-pointer flex items-center gap-2 transition-all text-sm text-white ${
 									copied
 										? "bg-emerald-500 shadow-[0_8px_24px_rgba(16,185,129,0.3)]"
 										: "bg-gradient-to-r from-violet-500 to-violet-600 shadow-[0_8px_24px_rgba(139,92,246,0.35)] hover:-translate-y-px hover:shadow-[0_12px_32px_rgba(139,92,246,0.45)]"
-								}`}
+								} ${generating ? "opacity-75 cursor-wait" : ""}`}
 							>
-								{copied ? (
+								{generating ? (
+									<Loader2 size={16} className="animate-spin" />
+								) : copied ? (
 									<>
 										<Check size={16} />
 										Copied!
@@ -424,7 +569,8 @@ function ShareModal({ isOpen, onClose, roomId }: ShareModalProps) {
 						<button
 							type="button"
 							onClick={handleCopy}
-							className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer text-[13px] font-semibold text-gray-600 transition-all hover:bg-gray-100 hover:border-violet-300 hover:text-violet-500"
+							disabled={generating}
+							className={`flex-1 flex items-center justify-center gap-2 py-3.5 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer text-[13px] font-semibold text-gray-600 transition-all hover:bg-gray-100 hover:border-violet-300 hover:text-violet-500 ${generating ? "opacity-75 cursor-wait" : ""}`}
 						>
 							<Link2 size={16} />
 							Copy Link
@@ -503,6 +649,8 @@ export function HeaderLeft({
 	const [saving, setSaving] = useState(false);
 	const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
+	const { isArchived, setIsArchived, setReadOnly } = useCanvasStore();
+
 	const HTTP_URL =
 		process.env.NEXT_PUBLIC_HTTP_URL || "https://lekhaflow.rishiikesh.me";
 
@@ -553,12 +701,16 @@ export function HeaderLeft({
 					const canvas = json?.data?.canvas || json?.canvas;
 					setCanvasName(canvas?.name || "");
 					setUpdatedAt(canvas?.updated_at || null);
+					setIsArchived(!!canvas?.is_archived);
+					if (canvas?.is_archived) {
+						setReadOnly(true);
+					}
 				}
 			} catch {}
 			setLoading(false);
 		}
 		init();
-	}, [HTTP_URL]);
+	}, [HTTP_URL, setIsArchived, setReadOnly]);
 
 	const handleBlur = async () => {
 		if (!roomId || !canvasName) return;
@@ -591,7 +743,6 @@ export function HeaderLeft({
 	const router = useRouter();
 
 	// Hydrate isReadOnly from localStorage when roomId is known
-	const setReadOnly = useCanvasStore((state) => state.setReadOnly);
 	useEffect(() => {
 		if (!roomId) return;
 		try {
@@ -603,11 +754,37 @@ export function HeaderLeft({
 		} catch {}
 	}, [roomId, setReadOnly]);
 
+	const handleToggleArchive = async () => {
+		if (!roomId) return;
+		const {
+			data: { session },
+		} = await supabase.auth.getSession();
+		if (!session) return;
+
+		try {
+			const res = await fetch(`${HTTP_URL}/api/v1/canvas/${roomId}/archive`, {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${session.access_token}`,
+				},
+				body: JSON.stringify({ isArchived: !isArchived }),
+			});
+			if (res.ok) {
+				setIsArchived(!isArchived);
+				if (!isArchived) setReadOnly(true);
+				else setReadOnly(false);
+			}
+		} catch (err) {
+			console.error("Failed to toggle archive:", err);
+		}
+	};
+
 	return (
 		<>
 			{/* Header Left Row — flex container for back, menu, title, saving status */}
 			<div
-				className="absolute top-4 left-4 right-[180px] z-[var(--z-toolbar)] flex items-center gap-2"
+				className="absolute top-4 left-4 right-[60px] sm:right-[180px] z-[var(--z-toolbar)] flex items-center gap-1.5 sm:gap-2"
 				style={{ animation: "fade-in 0.3s ease-out" }}
 			>
 				{/* Back Button */}
@@ -634,7 +811,7 @@ export function HeaderLeft({
 
 				{/* Canvas Name Card */}
 				<div
-					className="glass-card-elevated px-3 py-2 flex items-center gap-2 min-w-0 max-w-[280px] sm:max-w-[360px] flex-shrink"
+					className="glass-card-elevated px-2 sm:px-3 py-2 flex items-center gap-2 min-w-0 max-w-[160px] sm:max-w-[360px] flex-shrink"
 					style={{ animation: "fade-in 0.3s ease-out 0.05s backwards" }}
 				>
 					{loading ? (
@@ -670,8 +847,10 @@ export function HeaderLeft({
 					)}
 				</div>
 
-				{/* Saving Status Indicator — inline in the flex row */}
-				<SavingStatusIndicator />
+				{/* Saving Status Indicator — inline in the flex row (hidden on mobile) */}
+				<div className="hidden sm:block">
+					<SavingStatusIndicator />
+				</div>
 			</div>
 
 			{/* Sidebar Menu */}
@@ -682,6 +861,8 @@ export function HeaderLeft({
 				onExport={onExport}
 				onImportJson={onImportJson}
 				onExportDocumentation={onExportDocumentation}
+				isArchived={isArchived}
+				onToggleArchive={handleToggleArchive}
 			/>
 		</>
 	);
@@ -707,21 +888,33 @@ export function HeaderRight() {
 
 	return (
 		<>
-			<div className="absolute top-4 right-4 z-[var(--z-toolbar)] flex items-center gap-2 sm:gap-3">
-				{/* Collaborators - Simple Avatar Stack */}
+			<div className="absolute top-4 right-2 sm:right-4 z-[var(--z-toolbar)] flex items-center gap-1.5 sm:gap-3">
+				{/* Collaborators - Simple Avatar Stack (hidden on very small screens) */}
 				{collaborators.length > 0 && (
-					<div className="flex items-center gap-2 glass-card px-3 py-2 rounded-full">
+					<div className="hidden sm:flex items-center gap-2 glass-card px-3 py-2 rounded-full">
 						<Users size={14} className="text-gray-400" />
 						<div className="flex -space-x-2">
 							{collaborators.slice(0, 3).map((collab, _index) => (
-								<div
+								<button
+									type="button"
 									key={collab.id}
-									className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold text-white border-2 border-white"
+									onClick={() => {
+										if (collab.viewport) {
+											useCanvasStore
+												.getState()
+												.setScroll(
+													collab.viewport.scrollX,
+													collab.viewport.scrollY,
+												);
+											useCanvasStore.getState().setZoom(collab.viewport.zoom);
+										}
+									}}
+									className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold text-white border-2 border-white cursor-pointer hover:scale-110 transition-transform shadow-sm"
 									style={{ backgroundColor: collab.color }}
-									title={collab.name}
+									title={`Click to follow ${collab.name}`}
 								>
 									{getInitials(collab.name)}
-								</div>
+								</button>
 							))}
 							{collaborators.length > 3 && (
 								<div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-semibold text-gray-600 border-2 border-white">
@@ -732,11 +925,13 @@ export function HeaderRight() {
 					</div>
 				)}
 
+				<NotificationBell />
+
 				{/* Share Button */}
 				<button
 					type="button"
 					onClick={() => setShareModalOpen(true)}
-					className="flex items-center gap-2 px-6 py-2.5 cursor-pointer border-none text-sm font-semibold transition-all"
+					className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 cursor-pointer border-none text-sm font-semibold transition-all"
 					style={{
 						borderRadius: "var(--radius-md)",
 						background: "var(--color-accent)",
@@ -754,7 +949,7 @@ export function HeaderRight() {
 					}}
 				>
 					<Share2 size={16} />
-					Share
+					<span className="hidden sm:inline">Share</span>
 				</button>
 			</div>
 

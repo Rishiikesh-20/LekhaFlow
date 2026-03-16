@@ -102,13 +102,12 @@ export function TextFormattingToolbar() {
 	return (
 		<div
 			role="toolbar"
-			className="absolute left-1/2 -translate-x-1/2 z-[var(--z-toolbar)]"
-			style={{ top: "76px" }}
+			className="absolute left-1/2 -translate-x-1/2 z-[var(--z-toolbar)] top-[120px] sm:top-[76px] max-w-[calc(100vw-16px)]"
 			onBlur={handleBlur}
 			onMouseDown={(e) => e.preventDefault()}
 		>
 			<div
-				className="glass-card-elevated flex items-center gap-1 px-2 py-1.5"
+				className="glass-card-elevated flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-1.5 overflow-x-auto scrollbar-hide"
 				style={{
 					borderRadius: "12px",
 					height: "44px",

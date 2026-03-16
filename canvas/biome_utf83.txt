@@ -1,0 +1,126 @@
+﻿node.exe : apps\web\components
+\Canvas.tsx:1563:3 
+suppressions/unused ΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓ
+öüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+At C:\Users\krjee\AppData\Roam
+ing\npm\pnpm.ps1:24 char:5
++     & "node$exe"  "$basedir/
+node_modules/pnpm/bin/pnpm.cjs
+" $args
++     ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~
+    + CategoryInfo          : 
+    NotSpecified: (apps\web\  
+  compon...ΓöüΓöüΓöüΓöüΓöü:   
+ String) [], RemoteExcepti    
+on
+    + FullyQualifiedErrorId : 
+    NativeCommandError
+ 
+
+  ! Suppression comment has 
+no effect. Remove the 
+suppression or make sure you 
+are suppressing the correct 
+rule.
+  
+    1561 Γöé 			}
+    1562 Γöé 		};
+  > 1563 Γöé 		// 
+biome-ignore lint/correctness/
+useExhaustiveDependencies: we 
+need to run this when 
+elements change
+         Γöé 		^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^
+    1564 Γöé 	}, [roomId, 
+HTTP_URL, elements, 
+canvasBackgroundColor]);
+    1565 Γöé 
+  
+
+apps\web\components\Canvas.tsx
+:1510:2 lint/correctness/useEx
+haustiveDependencies  FIXABLE 
+ 
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+
+  ├ù This hook specifies more 
+dependencies than necessary: 
+elements.
+  
+    1508 Γöé 		process.env.NEX
+T_PUBLIC_HTTP_URL || "https://
+lekhaflow.rishiikesh.me";
+    1509 Γöé 
+  > 1510 Γöé 	useEffect(() => 
+{
+         Γöé 	^^^^^^^^^
+    1511 Γöé 		// Clear 
+previous timer on every 
+element change
+    1512 Γöé 		if 
+(thumbnailTimerRef.current) {
+  
+  i This dependency can be 
+removed from the list.
+  
+    1562 Γöé 		};
+    1563 Γöé 		// 
+biome-ignore lint/correctness/
+useExhaustiveDependencies: we 
+need to run this when 
+elements change
+  > 1564 Γöé 	}, [roomId, 
+HTTP_URL, elements, 
+canvasBackgroundColor]);
+         Γöé 	                
+      ^^^^^^^^
+    1565 Γöé 
+    1566 Γöé 	// Reconnect 
+function
+  
+  i React relies on hook 
+dependencies to determine 
+when to re-compute Effects.
+    Specifying more 
+dependencies than required 
+can lead to unnecessary 
+re-rendering
+    and degraded performance.
+  
+  i Unsafe fix: Remove the 
+extra dependencies from the 
+list.
+  
+    1564 Γöé ΓåÆ },┬╖[roomId,┬
+╖HTTP_URL,┬╖elements,┬╖canvasB
+ackgroundColor]);
+         Γöé                  
+       ----------             
+           
+
+Checked 188 files in 175ms. No fixes applied.
+Found 1 error.
+Found 1 warning.
+check ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöüΓöü
+ΓöüΓöüΓöüΓöüΓöüΓöü
+
+  ├ù Some errors were emitted 
+while running checks.
+  
+

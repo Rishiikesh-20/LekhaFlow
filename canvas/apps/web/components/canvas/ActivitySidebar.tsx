@@ -52,7 +52,7 @@ export function ActivitySidebar() {
 				type="button"
 				onClick={() => setOpen(!isOpen)}
 				title="Activity Log"
-				className="fixed left-4 bottom-16 z-30 w-10 h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
+				className="fixed left-3 sm:left-4 bottom-14 sm:bottom-16 z-30 w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border-none cursor-pointer transition-all hover:scale-105"
 				style={{
 					background: isOpen
 						? "var(--color-accent, #7c3aed)"
@@ -78,7 +78,7 @@ export function ActivitySidebar() {
 			<div
 				className="fixed top-0 left-0 h-full z-40 flex flex-col transition-transform duration-300 ease-out"
 				style={{
-					width: 300,
+					width: "min(300px, 100vw)",
 					transform: isOpen ? "translateX(0)" : "translateX(-100%)",
 					background: "rgba(255,255,255,0.97)",
 					backdropFilter: "blur(20px)",

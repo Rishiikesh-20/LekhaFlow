@@ -8,8 +8,21 @@
 
 "use client";
 
-import { ChevronDown, ChevronRight, Lock, Palette, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { TextElement, TextRun } from "@repo/common";
+import {
+	Bold,
+	ChevronDown,
+	ChevronRight,
+	Italic,
+	Lock,
+	Palette,
+	Plus,
+	Underline,
+	Unlock,
+	X,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { layoutRuns, mergeAdjacentRuns } from "../../lib/text-runs";
 import { useCanvasStore, useSelectedElements } from "../../store/canvas-store";
 
 type StrokeStyle = "solid" | "dashed" | "dotted";
@@ -60,10 +73,47 @@ const BRUSH_OPTIONS = [
 	},
 ];
 
-export function PropertiesPanel() {
+const TEXT_FONT_FAMILIES = [
+	"Arial",
+	"Helvetica",
+	"Georgia",
+	"Times New Roman",
+	"Courier New",
+	"Verdana",
+	"Trebuchet MS",
+	"Comic Sans MS",
+] as const;
+
+const TEXT_FONT_SIZES = [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72];
+
+interface PropertiesPanelProps {
+	onUpdateSettings?: (updates: Record<string, unknown>) => void;
+}
+
+export function PropertiesPanel({ onUpdateSettings }: PropertiesPanelProps) {
 	const [isCollapsed, setIsCollapsed] = useState(true);
 	const [isBrushDropdownOpen, setIsBrushDropdownOpen] = useState(false);
+	const [isFontFamilyOpen, setIsFontFamilyOpen] = useState(false);
+	const [isFontSizeOpen, setIsFontSizeOpen] = useState(false);
 	const brushDropdownRef = useRef<HTMLDivElement>(null);
+	const fontFamilyDropdownRef = useRef<HTMLDivElement>(null);
+	const fontSizeDropdownRef = useRef<HTMLDivElement>(null);
+	const fontSizeInputRef = useRef<HTMLInputElement>(null);
+	const customColorInputRef = useRef<HTMLInputElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
+
+	// Attach a native wheel listener that stops propagation so the canvas
+	// window-level wheel handler (which pans/zooms) never fires when scrolling
+	// inside this panel.
+	useEffect(() => {
+		const el = panelRef.current;
+		if (!el) return;
+		const stop = (e: WheelEvent) => {
+			e.stopPropagation();
+		};
+		el.addEventListener("wheel", stop, { passive: false });
+		return () => el.removeEventListener("wheel", stop);
+	});
 	const {
 		currentStrokeColor,
 		currentBackgroundColor,
@@ -85,6 +135,11 @@ export function PropertiesPanel() {
 		isReadOnly,
 		currentFillStyle,
 		setFillStyle,
+		batchUpdateElements,
+		canvasBackgroundColor,
+		activeGridMode,
+		setCanvasBackgroundColor,
+		setGridMode,
 	} = useCanvasStore();
 
 	// Detect if any selected element is a freedraw so brush controls stay
@@ -95,7 +150,111 @@ export function PropertiesPanel() {
 	);
 	const showBrushControls = activeTool === "freedraw" || hasSelectedFreedraw;
 
-	// Close brush dropdown on outside click
+	// Detect selected text elements for text formatting controls
+	const selectedTextElements = selectedElements.filter(
+		(el): el is TextElement => el.type === "text",
+	);
+	const hasSelectedText = selectedTextElements.length > 0;
+
+	// Derive current text style from first selected text element
+	const firstText = selectedTextElements[0] as TextElement | undefined;
+	const currentFontFamily = firstText?.runs?.[0]?.fontFamily ?? "Arial";
+	const currentFontSize =
+		firstText?.runs?.[0]?.fontSize ?? firstText?.fontSize ?? 20;
+	const currentBold = firstText?.runs?.[0]?.bold ?? false;
+	const currentItalic = firstText?.runs?.[0]?.italic ?? false;
+	const currentUnderline = firstText?.runs?.[0]?.underline ?? false;
+
+	const allLocked =
+		selectedElements.length > 0 && selectedElements.every((el) => el.locked);
+
+	// ── Text formatting handlers ──────────────────────────────────
+	const updateTextElements = useCallback(
+		(stylePatch: Partial<Omit<TextRun, "text">>) => {
+			if (selectedTextElements.length === 0) return;
+			const updates = selectedTextElements.map((el) => {
+				const textEl = el as TextElement;
+				// Update all runs with the new style
+				const existingRuns: TextRun[] =
+					textEl.runs && textEl.runs.length > 0
+						? textEl.runs
+						: [
+								{
+									text: textEl.text,
+									fontFamily: "Arial",
+									fontSize: textEl.fontSize ?? 20,
+								},
+							];
+				const newRuns = mergeAdjacentRuns(
+					existingRuns.map((r) => ({ ...r, ...stylePatch })),
+				);
+				const layout = layoutRuns(newRuns);
+				const partial: Record<string, unknown> = {
+					runs: newRuns,
+					width: layout.width,
+					height: layout.height,
+				};
+				// Keep element-level fontSize in sync when changed
+				if (stylePatch.fontSize !== undefined) {
+					partial.fontSize = stylePatch.fontSize;
+				}
+				return { id: el.id, updates: partial };
+			});
+			batchUpdateElements(updates);
+		},
+		[selectedTextElements, batchUpdateElements],
+	);
+
+	const handleFontFamilyChange = useCallback(
+		(font: string) => {
+			updateTextElements({ fontFamily: font });
+			setIsFontFamilyOpen(false);
+		},
+		[updateTextElements],
+	);
+
+	const handleFontSizeChange = useCallback(
+		(size: number) => {
+			updateTextElements({ fontSize: size });
+			setIsFontSizeOpen(false);
+		},
+		[updateTextElements],
+	);
+
+	const handleFontSizeInputCommit = useCallback(() => {
+		const input = fontSizeInputRef.current;
+		if (!input) return;
+		const val = Number.parseInt(input.value, 10);
+		if (val >= 1 && val <= 200) {
+			updateTextElements({ fontSize: val });
+		} else {
+			input.value = String(currentFontSize);
+		}
+	}, [updateTextElements, currentFontSize]);
+
+	const toggleTextBold = useCallback(() => {
+		updateTextElements({ bold: !currentBold || undefined });
+	}, [updateTextElements, currentBold]);
+
+	const toggleTextItalic = useCallback(() => {
+		updateTextElements({ italic: !currentItalic || undefined });
+	}, [updateTextElements, currentItalic]);
+
+	const toggleTextUnderline = useCallback(() => {
+		updateTextElements({ underline: !currentUnderline || undefined });
+	}, [updateTextElements, currentUnderline]);
+
+	const handleToggleLock = () => {
+		const newLockedState = !allLocked;
+		batchUpdateElements(
+			selectedElements.map((el) => ({
+				id: el.id,
+				updates: { locked: newLockedState },
+			})),
+		);
+	};
+
+	// Close dropdowns on outside click
 	useEffect(() => {
 		function handleClickOutside(e: MouseEvent) {
 			if (
@@ -104,17 +263,29 @@ export function PropertiesPanel() {
 			) {
 				setIsBrushDropdownOpen(false);
 			}
+			if (
+				fontFamilyDropdownRef.current &&
+				!fontFamilyDropdownRef.current.contains(e.target as Node)
+			) {
+				setIsFontFamilyOpen(false);
+			}
+			if (
+				fontSizeDropdownRef.current &&
+				!fontSizeDropdownRef.current.contains(e.target as Node)
+			) {
+				setIsFontSizeOpen(false);
+			}
 		}
-		if (isBrushDropdownOpen) {
+		if (isBrushDropdownOpen || isFontFamilyOpen || isFontSizeOpen) {
 			document.addEventListener("mousedown", handleClickOutside);
 		}
 		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, [isBrushDropdownOpen]);
+	}, [isBrushDropdownOpen, isFontFamilyOpen, isFontSizeOpen]);
 
 	// In read-only mode, show a locked badge instead of the panel
 	if (isReadOnly) {
 		return (
-			<div className="absolute top-[136px] sm:top-20 right-4 z-50">
+			<div className="absolute top-[136px] sm:top-20 right-2 sm:right-4 z-50">
 				<div className="glass-card-elevated rounded-2xl px-4 py-3 flex items-center gap-2.5 opacity-60 cursor-not-allowed">
 					<Lock size={16} className="text-red-400" />
 					<span className="text-[13px] font-semibold text-gray-400">
@@ -127,7 +298,7 @@ export function PropertiesPanel() {
 
 	if (isCollapsed) {
 		return (
-			<div className="absolute top-[136px] sm:top-20 right-4 z-50">
+			<div className="absolute top-[136px] sm:top-20 right-2 sm:right-4 z-50">
 				<button
 					type="button"
 					onClick={() => setIsCollapsed(false)}
@@ -143,8 +314,14 @@ export function PropertiesPanel() {
 	}
 
 	return (
-		<div className="absolute top-[136px] sm:top-20 right-4 z-50">
-			<div className="glass-card-elevated rounded-2xl w-[232px] p-4 animate-scale-in max-h-[calc(100vh-160px)] overflow-y-auto">
+		<div
+			className="absolute top-[136px] sm:top-20 right-2 sm:right-4 z-50"
+			data-ui-panel
+		>
+			<div
+				ref={panelRef}
+				className="glass-card-elevated rounded-2xl w-[200px] sm:w-[232px] p-3 sm:p-4 animate-scale-in max-h-[calc(100vh-160px)] overflow-y-auto"
+			>
 				{/* Header */}
 				<div className="flex items-center justify-between mb-4">
 					<div className="flex items-center gap-2">
@@ -153,13 +330,29 @@ export function PropertiesPanel() {
 						</div>
 						<span className="text-sm font-bold text-gray-800">Style</span>
 					</div>
-					<button
-						type="button"
-						onClick={() => setIsCollapsed(true)}
-						className="p-1.5 rounded-lg bg-transparent border-none cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center"
-					>
-						<X size={16} className="text-gray-400" />
-					</button>
+					<div className="flex items-center gap-1">
+						{selectedElements.length > 0 && (
+							<button
+								type="button"
+								onClick={handleToggleLock}
+								title={allLocked ? "Unlock Elements" : "Lock Elements"}
+								className={`p-1.5 rounded-lg border-none cursor-pointer transition-colors flex items-center justify-center ${
+									allLocked
+										? "bg-red-50 text-red-500 hover:bg-red-100"
+										: "bg-transparent text-gray-400 hover:bg-gray-100"
+								}`}
+							>
+								{allLocked ? <Lock size={16} /> : <Unlock size={16} />}
+							</button>
+						)}
+						<button
+							type="button"
+							onClick={() => setIsCollapsed(true)}
+							className="p-1.5 rounded-lg bg-transparent border-none cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-center"
+						>
+							<X size={16} className="text-gray-400" />
+						</button>
+					</div>
 				</div>
 
 				{/* Stroke Color */}
@@ -320,6 +513,163 @@ export function PropertiesPanel() {
 					className="w-full cursor-pointer"
 				/>
 
+				{/* ── Text Formatting (text elements only) ──────────── */}
+				{hasSelectedText && (
+					<>
+						<div className="h-px bg-gray-100 my-4" />
+
+						{/* Font Family */}
+						<SectionLabel>Font Family</SectionLabel>
+						<div className="relative mb-4" ref={fontFamilyDropdownRef}>
+							<button
+								type="button"
+								onClick={() => {
+									setIsFontFamilyOpen((v) => !v);
+									setIsFontSizeOpen(false);
+								}}
+								className="w-full h-9 rounded-lg cursor-pointer flex items-center gap-2 px-3 transition-all border-none bg-white ring-1 ring-gray-200 hover:ring-violet-300"
+							>
+								<span
+									className="text-[13px] font-medium text-gray-700 flex-1 text-left truncate"
+									style={{ fontFamily: currentFontFamily }}
+								>
+									{currentFontFamily}
+								</span>
+								<ChevronDown
+									size={14}
+									className={`text-gray-400 transition-transform duration-150 flex-shrink-0 ${
+										isFontFamilyOpen ? "rotate-180" : ""
+									}`}
+								/>
+							</button>
+
+							{isFontFamilyOpen && (
+								<div className="absolute left-0 right-0 top-[calc(100%+4px)] z-[60] rounded-xl bg-white shadow-lg ring-1 ring-gray-200 py-1 max-h-48 overflow-y-auto animate-scale-in">
+									{TEXT_FONT_FAMILIES.map((font) => (
+										<button
+											type="button"
+											key={font}
+											onClick={() => handleFontFamilyChange(font)}
+											className={`w-full text-left px-3 py-1.5 text-sm cursor-pointer transition-colors border-none ${
+												currentFontFamily === font
+													? "bg-violet-50 text-violet-600 font-medium"
+													: "bg-transparent text-gray-700 hover:bg-gray-50"
+											}`}
+											style={{ fontFamily: font }}
+										>
+											{font}
+										</button>
+									))}
+								</div>
+							)}
+						</div>
+
+						{/* Font Size */}
+						<SectionLabel>Font Size</SectionLabel>
+						<div className="flex gap-2 mb-4" ref={fontSizeDropdownRef}>
+							<div className="relative flex-1">
+								<div className="flex items-center">
+									<input
+										ref={fontSizeInputRef}
+										type="text"
+										inputMode="numeric"
+										defaultValue={currentFontSize}
+										key={currentFontSize}
+										className="w-full h-9 text-center text-sm rounded-lg border border-gray-200
+                      text-gray-700 focus:outline-none focus:border-violet-400"
+										title="Font size"
+										onKeyDown={(e) => {
+											if (e.key === "Enter") {
+												handleFontSizeInputCommit();
+												(e.target as HTMLInputElement).blur();
+											}
+										}}
+										onBlur={handleFontSizeInputCommit}
+									/>
+								</div>
+							</div>
+							<div className="relative">
+								<button
+									type="button"
+									onClick={() => {
+										setIsFontSizeOpen((v) => !v);
+										setIsFontFamilyOpen(false);
+									}}
+									className="h-9 px-2 rounded-lg cursor-pointer flex items-center justify-center transition-all border-none bg-white ring-1 ring-gray-200 hover:ring-violet-300"
+									title="Font size presets"
+								>
+									<ChevronDown
+										size={14}
+										className={`text-gray-400 transition-transform duration-150 ${
+											isFontSizeOpen ? "rotate-180" : ""
+										}`}
+									/>
+								</button>
+
+								{isFontSizeOpen && (
+									<div className="absolute right-0 top-[calc(100%+4px)] z-[60] w-20 rounded-xl bg-white shadow-lg ring-1 ring-gray-200 py-1 max-h-48 overflow-y-auto animate-scale-in">
+										{TEXT_FONT_SIZES.map((size) => (
+											<button
+												type="button"
+												key={size}
+												onClick={() => handleFontSizeChange(size)}
+												className={`w-full text-center px-2 py-1 text-sm cursor-pointer transition-colors border-none ${
+													currentFontSize === size
+														? "bg-violet-50 text-violet-600 font-medium"
+														: "bg-transparent text-gray-700 hover:bg-gray-50"
+												}`}
+											>
+												{size}
+											</button>
+										))}
+									</div>
+								)}
+							</div>
+						</div>
+
+						{/* Bold / Italic / Underline */}
+						<SectionLabel>Text Style</SectionLabel>
+						<div className="flex gap-2 mb-4">
+							<button
+								type="button"
+								onClick={toggleTextBold}
+								title="Bold"
+								className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center transition-all border-none ${
+									currentBold
+										? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+										: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+								}`}
+							>
+								<Bold size={16} />
+							</button>
+							<button
+								type="button"
+								onClick={toggleTextItalic}
+								title="Italic"
+								className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center transition-all border-none ${
+									currentItalic
+										? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+										: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+								}`}
+							>
+								<Italic size={16} />
+							</button>
+							<button
+								type="button"
+								onClick={toggleTextUnderline}
+								title="Underline"
+								className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center transition-all border-none ${
+									currentUnderline
+										? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+										: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-600"
+								}`}
+							>
+								<Underline size={16} />
+							</button>
+						</div>
+					</>
+				)}
+
 				{/* ── Brush Tools (freedraw only) ─────────────────── */}
 				{showBrushControls && (
 					<>
@@ -463,6 +813,110 @@ export function PropertiesPanel() {
 						)}
 					</>
 				)}
+
+				<div className="h-px bg-gray-100 my-4" />
+
+				{/* ── Canvas Settings (Story 1.3.4) ────────────────── */}
+				<SectionLabel>Canvas Background</SectionLabel>
+				<div className="grid grid-cols-4 gap-2 mb-4">
+					{[
+						{ color: "#ffffff", name: "Light" },
+						{ color: "#f8f9fa", name: "Soft" },
+						{ color: "#252525", name: "Dark" },
+						{ color: "#121212", name: "Black" },
+					].map(({ color, name }) => (
+						<button
+							type="button"
+							key={color}
+							onClick={() => {
+								setCanvasBackgroundColor(color);
+								onUpdateSettings?.({ backgroundColor: color });
+							}}
+							title={name}
+							className={`w-full aspect-square rounded-lg cursor-pointer transition-all border-none ${
+								canvasBackgroundColor === color
+									? "ring-2 ring-violet-500 ring-offset-2 scale-95"
+									: "ring-1 ring-gray-200 hover:ring-gray-300 hover:scale-95"
+							}`}
+							style={{ backgroundColor: color }}
+						/>
+					))}
+					{/* Custom Color Button */}
+					<button
+						type="button"
+						onClick={() => customColorInputRef.current?.click()}
+						title="Custom Color"
+						className={`w-full aspect-square rounded-lg cursor-pointer transition-all border-none flex items-center justify-center relative ${
+							!["#ffffff", "#f8f9fa", "#252525", "#121212"].includes(
+								canvasBackgroundColor,
+							)
+								? "ring-2 ring-violet-500 ring-offset-2 scale-95"
+								: "ring-1 ring-gray-200 hover:ring-gray-300 hover:scale-95"
+						}`}
+						style={{
+							backgroundColor: ![
+								"#ffffff",
+								"#f8f9fa",
+								"#252525",
+								"#121212",
+							].includes(canvasBackgroundColor)
+								? canvasBackgroundColor
+								: "#ffffff",
+						}}
+					>
+						<Plus
+							size={16}
+							className={
+								!["#ffffff", "#f8f9fa", "#252525", "#121212"].includes(
+									canvasBackgroundColor,
+								)
+									? "text-white mix-blend-difference"
+									: "text-gray-400"
+							}
+						/>
+						<input
+							ref={customColorInputRef}
+							type="color"
+							className="sr-only"
+							value={canvasBackgroundColor}
+							onChange={(e) => {
+								setCanvasBackgroundColor(e.target.value);
+								onUpdateSettings?.({ backgroundColor: e.target.value });
+							}}
+						/>
+					</button>
+				</div>
+
+				<div className="flex items-center gap-2 mb-4">
+					<span className="text-[10px] font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded uppercase flex-1 text-center border border-gray-100">
+						{canvasBackgroundColor}
+					</span>
+				</div>
+
+				<SectionLabel>Grid Mode</SectionLabel>
+				<div className="flex gap-2 mb-2">
+					{[
+						{ mode: "none", label: "None" },
+						{ mode: "dots", label: "Dots" },
+						{ mode: "grid", label: "Grid" },
+					].map(({ mode, label }) => (
+						<button
+							type="button"
+							key={mode}
+							onClick={() => {
+								setGridMode(mode as typeof activeGridMode);
+								onUpdateSettings?.({ gridMode: mode });
+							}}
+							className={`flex-1 h-9 rounded-lg cursor-pointer flex items-center justify-center text-[11px] font-bold transition-all border-none ${
+								activeGridMode === mode
+									? "bg-violet-50 ring-2 ring-violet-500 text-violet-700"
+									: "bg-white ring-1 ring-gray-200 hover:ring-gray-300 text-gray-500"
+							}`}
+						>
+							{label}
+						</button>
+					))}
+				</div>
 			</div>
 		</div>
 	);

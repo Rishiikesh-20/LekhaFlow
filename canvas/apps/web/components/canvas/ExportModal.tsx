@@ -422,6 +422,14 @@ export function ExportModal({
 					}
 					break;
 				}
+				case "image": {
+					// Export image as an embedded <image> element in SVG
+					const imgEl = el as { imageUrl?: string };
+					if (imgEl.imageUrl) {
+						svg += `<image x="${x}" y="${y}" width="${Math.abs(el.width)}" height="${Math.abs(el.height)}" href="${imgEl.imageUrl}" opacity="${opacity}"${transform} preserveAspectRatio="none"/>`;
+					}
+					break;
+				}
 			}
 		}
 
@@ -443,7 +451,7 @@ export function ExportModal({
 			/>
 
 			{/* Modal */}
-			<div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[480px] overflow-hidden animate-scale-in">
+			<div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-[calc(100vw-32px)] sm:max-w-[480px] overflow-hidden animate-scale-in">
 				{/* Header */}
 				<div className="bg-gradient-to-br from-violet-500 via-violet-600 to-indigo-600 px-6 py-5 flex items-center justify-between">
 					<div className="flex items-center gap-3">

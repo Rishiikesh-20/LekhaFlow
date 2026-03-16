@@ -1,7 +1,9 @@
 import type { CreateCanvasType } from "@repo/common";
+import { serverEnv } from "@repo/config/server";
 import { HttpError } from "@repo/http-core";
 import type { Tables } from "@repo/supabase";
 import { StatusCodes } from "http-status-codes";
+import jwt from "jsonwebtoken";
 import { createServiceClient } from "../supabase.server";
 
 const getClient = () => createServiceClient();
@@ -16,7 +18,7 @@ const generateSlug = (name: string): string => {
 };
 
 export const createCanvasService = async (
-	params: CreateCanvasType & { userId: string },
+	params: CreateCanvasType & { userId: string; folderId?: string | null },
 ): Promise<Tables<"canvases">> => {
 	const { name, isPublic, folderId, userId } = params;
 
@@ -114,6 +116,8 @@ export const updateCanvasService = async (
 	if (update.thumbnail_url !== undefined)
 		updateFields.thumbnail_url = update.thumbnail_url;
 
+	updateFields.updated_at = new Date().toISOString();
+
 	const { error } = await getClient()
 		.from("canvases")
 		.update(updateFields)
@@ -173,6 +177,8 @@ export interface SearchCanvasesOptions {
 	order?: "asc" | "desc";
 	page?: number;
 	limit?: number;
+	tagId?: string;
+	isArchived?: boolean;
 }
 
 export const searchCanvasesService = async (
@@ -190,30 +196,63 @@ export const searchCanvasesService = async (
 		order = "desc",
 		page = 1,
 		limit = 20,
+		tagId,
+		isArchived = false,
 	} = options;
 
 	const ascending = order === "asc";
 	const orderColumn = sortBy === "title" ? "name" : "created_at";
 
+	// If tagId filter is active, resolve which canvas IDs have that tag
+	let tagFilteredIds: string[] | null = null;
+	if (tagId) {
+		const { data: tagRows } = await getClient()
+			.from("tags_on_canvases")
+			.select("canvas_id")
+			.eq("tag_id", tagId);
+
+		tagFilteredIds = (tagRows || []).map(
+			(r: { canvas_id: string }) => r.canvas_id,
+		);
+		if (tagFilteredIds.length === 0) {
+			// No canvases have this tag — return empty
+			return { canvases: [], total: 0, page, limit };
+		}
+	}
+
 	// If no search query, return all canvases with sorting & pagination
 	if (!q.trim()) {
-		const { count } = await getClient()
+		let countQuery = getClient()
 			.from("canvases")
 			.select("*", { count: "exact", head: true })
 			.eq("owner_id", userId)
-			.eq("is_deleted", false);
+			.eq("is_deleted", false)
+			.eq("is_archived", isArchived);
+
+		if (tagFilteredIds) {
+			countQuery = countQuery.in("id", tagFilteredIds);
+		}
+
+		const { count } = await countQuery;
 
 		const total = count ?? 0;
 		const from = (page - 1) * limit;
 		const to = from + limit - 1;
 
-		const { data, error } = await getClient()
+		let dataQuery = getClient()
 			.from("canvases")
 			.select("*")
 			.eq("owner_id", userId)
 			.eq("is_deleted", false)
+			.eq("is_archived", isArchived)
 			.order(orderColumn, { ascending })
 			.range(from, to);
+
+		if (tagFilteredIds) {
+			dataQuery = dataQuery.in("id", tagFilteredIds);
+		}
+
+		const { data, error } = await dataQuery;
 
 		if (error) {
 			throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
@@ -228,6 +267,7 @@ export const searchCanvasesService = async (
 		.select("*")
 		.eq("owner_id", userId)
 		.eq("is_deleted", false)
+		.eq("is_archived", isArchived)
 		.ilike("name", `%${q}%`);
 
 	if (nameError) {
@@ -260,13 +300,20 @@ export const searchCanvasesService = async (
 			.select("*")
 			.in("id", tagCanvasIds)
 			.eq("owner_id", userId)
+			.eq("is_archived", isArchived)
 			.eq("is_deleted", false);
 
 		tagCanvases = tagCanvasData || [];
 	}
 
 	// Merge and deduplicate
-	const allCanvases = [...(nameMatches || []), ...tagCanvases];
+	let allCanvases = [...(nameMatches || []), ...tagCanvases];
+
+	// Apply tagId filter if active (intersection with tag-based search results)
+	if (tagFilteredIds) {
+		const idSet = new Set(tagFilteredIds);
+		allCanvases = allCanvases.filter((c) => idSet.has(c.id));
+	}
 
 	// Sort
 	allCanvases.sort((a, b) => {
@@ -289,24 +336,171 @@ export const searchCanvasesService = async (
 	return { canvases: paginatedCanvases, total, page, limit };
 };
 
+export const createInviteService = async (
+	roomId: string,
+	role: "editor" | "viewer",
+	userId: string,
+): Promise<{ inviteLink: string }> => {
+	// First check if the user is the owner (only owner can generate links for now)
+	const canvas = await getCanvasService(roomId);
+	if (!canvas || canvas.owner_id !== userId) {
+		throw new HttpError(
+			"You are not authorized to create invites for this canvas",
+			StatusCodes.FORBIDDEN,
+		);
+	}
+
+	// Using the same secret as Supabase Auth provides a consistent JWT strategy
+	const JWT_SECRET =
+		process.env.JWT_SECRET || serverEnv.SUPABASE_ANON_KEY || "fallback_secret";
+
+	const payload = {
+		canvasId: roomId,
+		role,
+	};
+
+	const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
+
+	return { inviteLink: token }; // Return the token to construct link on frontend
+};
+
+export const joinCanvasService = async (
+	token: string,
+	userId: string,
+): Promise<{ roomId: string; role: string }> => {
+	const JWT_SECRET =
+		process.env.JWT_SECRET || serverEnv.SUPABASE_ANON_KEY || "fallback_secret";
+
+	try {
+		const decoded = jwt.verify(token, JWT_SECRET) as {
+			canvasId: string;
+			role: string;
+		};
+		const { canvasId, role } = decoded;
+
+		// Verify canvas exists
+		const canvas = await getCanvasService(canvasId);
+		if (!canvas) {
+			throw new HttpError(
+				"Canvas not found or has been deleted",
+				StatusCodes.NOT_FOUND,
+			);
+		}
+
+		// Map role to valid canvas_role enum (owner handled differently)
+		let validRole = role;
+		if (role !== "editor" && role !== "viewer") {
+			validRole = "viewer"; // Default fallback
+		}
+
+		if (canvas.owner_id === userId) {
+			// User is already owner, just return
+			return { roomId: canvasId, role: "owner" };
+		}
+
+		// Insert or update member record
+		const { error } = await getClient()
+			.from("canvas_members")
+			.upsert(
+				{
+					canvas_id: canvasId,
+					user_id: userId,
+					role: validRole as "editor" | "viewer",
+				},
+				{
+					onConflict: "canvas_id,user_id",
+				},
+			);
+
+		if (error) {
+			throw new HttpError(
+				`Failed to join canvas: ${error.message}`,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+
+		return { roomId: canvasId, role: validRole };
+	} catch (err: unknown) {
+		if (err instanceof Error && err.name === "TokenExpiredError") {
+			throw new HttpError(
+				"Provide a valid invite token",
+				StatusCodes.BAD_REQUEST,
+			);
+		}
+		throw new HttpError("Invalid invite token", StatusCodes.BAD_REQUEST);
+	}
+};
+
 export const getRecentCanvasesService = async (
 	userId: string,
 	limit = 5,
 ): Promise<Tables<"canvases">[]> => {
-	const { data, error } = await getClient()
+	// 1. Get owned recent canvases
+	const { data: ownedData, error: ownedError } = await getClient()
 		.from("canvases")
 		.select("*")
 		.eq("owner_id", userId)
 		.eq("is_deleted", false)
+		.eq("is_archived", false)
 		.not("last_accessed_at", "is", null)
 		.order("last_accessed_at", { ascending: false })
 		.limit(limit);
 
-	if (error) {
-		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	if (ownedError) {
+		throw new HttpError(ownedError.message, StatusCodes.INTERNAL_SERVER_ERROR);
 	}
 
-	return data || [];
+	// 2. Get recently accessed shared canvases (non-critical — ignore failures)
+	let sharedData: Tables<"canvases">[] = [];
+	try {
+		const { data: accessLogs } = await getClient()
+			.from("activity_logs")
+			.select("canvas_id")
+			.eq("user_id", userId)
+			.eq("action", "accessed")
+			.order("created_at", { ascending: false });
+
+		const recentSharedIds = [
+			...new Set(
+				(accessLogs || [])
+					.map((log) => log.canvas_id)
+					.filter((id) => !(ownedData || []).some((c) => c.id === id)),
+			),
+		].slice(0, limit);
+
+		if (recentSharedIds.length > 0) {
+			const { data: shared } = await getClient()
+				.from("canvases")
+				.select("*")
+				.in("id", recentSharedIds)
+				.eq("is_deleted", false)
+				.not("last_accessed_at", "is", null);
+
+			sharedData = shared || [];
+		}
+	} catch {
+		// activity_logs query is non-critical; return only owned canvases
+	}
+
+	// 3. Merge, deduplicate (just in case), and sort globally
+	const allRecent = [...(ownedData || []), ...sharedData];
+
+	const dedupedMap = new Map<string, Tables<"canvases">>();
+	for (const canvas of allRecent) {
+		if (!dedupedMap.has(canvas.id)) {
+			dedupedMap.set(canvas.id, canvas);
+		}
+	}
+
+	const dedupedRecent = Array.from(dedupedMap.values());
+	dedupedRecent.sort((a, b) => {
+		return (
+			new Date(b.last_accessed_at || 0).getTime() -
+			new Date(a.last_accessed_at || 0).getTime()
+		);
+	});
+
+	return dedupedRecent.slice(0, limit);
 };
 
 export const touchCanvasAccessService = async (
@@ -326,4 +520,260 @@ export const touchCanvasAccessService = async (
 			err,
 		);
 	}
+};
+
+export const uploadCanvasThumbnailService = async (
+	canvasId: string,
+	base64Data: string,
+	userId: string,
+): Promise<string> => {
+	// 1. Convert base64 to Buffer
+	const base64Content = base64Data.includes(",")
+		? base64Data.split(",")[1]
+		: base64Data;
+	if (!base64Content) {
+		throw new HttpError("Invalid image data", StatusCodes.BAD_REQUEST);
+	}
+	const buffer = Buffer.from(base64Content, "base64");
+
+	const filePath = `${userId}/${canvasId}.jpg`;
+	const client = createServiceClient(); // use factory directly for consistency
+
+	// 2. Upload to Supabase Storage
+	const { error: uploadError } = await client.storage
+		.from("thumbnails")
+		.upload(filePath, buffer, {
+			contentType: "image/jpeg",
+			upsert: true,
+		});
+
+	if (uploadError) {
+		// If bucket doesn't exist, try creating it
+		if (
+			uploadError.message.toLowerCase().includes("not found") ||
+			uploadError.message.toLowerCase().includes("does not exist")
+		) {
+			try {
+				await client.storage.createBucket("thumbnails", {
+					public: true,
+					allowedMimeTypes: ["image/jpeg", "image/png"],
+				});
+				// Retry upload
+				const { error: retryError } = await client.storage
+					.from("thumbnails")
+					.upload(filePath, buffer, {
+						contentType: "image/jpeg",
+						upsert: true,
+					});
+				if (retryError) {
+					throw new HttpError(
+						retryError.message,
+						StatusCodes.INTERNAL_SERVER_ERROR,
+					);
+				}
+			} catch (err) {
+				console.error("[uploadThumbnail] Bucket creation failed:", err);
+				throw new HttpError(
+					uploadError.message,
+					StatusCodes.INTERNAL_SERVER_ERROR,
+				);
+			}
+		} else {
+			throw new HttpError(
+				uploadError.message,
+				StatusCodes.INTERNAL_SERVER_ERROR,
+			);
+		}
+	}
+
+	// 3. Get public URL
+	const {
+		data: { publicUrl },
+	} = client.storage.from("thumbnails").getPublicUrl(filePath);
+
+	// 4. Update canvases table
+	const { error: dbError } = await client
+		.from("canvases")
+		.update({
+			thumbnail_url: publicUrl,
+			updated_at: new Date().toISOString(),
+		})
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (dbError) {
+		throw new HttpError(dbError.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	return publicUrl;
+};
+
+export const duplicateCanvasService = async (
+	canvasId: string,
+	userId: string,
+): Promise<Tables<"canvases">> => {
+	const client = getClient();
+
+	// 1. Fetch original canvas
+	const { data: original, error: fetchError } = await client
+		.from("canvases")
+		.select("*")
+		.eq("id", canvasId)
+		.eq("owner_id", userId)
+		.single();
+
+	if (fetchError || !original) {
+		throw new HttpError(
+			fetchError?.message || "Canvas not found",
+			StatusCodes.NOT_FOUND,
+		);
+	}
+
+	// 2. Create new canvas with identical data but new name/id
+	const newName = original.name ? `Copy of ${original.name}` : "Untitled Copy";
+	const newSlug = generateSlug(newName);
+
+	const { data: copy, error: createError } = await client
+		.from("canvases")
+		.insert({
+			name: newName,
+			slug: newSlug,
+			owner_id: userId,
+			data: original.data, // Deep copy of elements
+			background_color: original.background_color,
+			thumbnail_url: original.thumbnail_url,
+			folder_id: original.folder_id,
+			is_public: original.is_public,
+		})
+		.select()
+		.single();
+
+	if (createError || !copy) {
+		throw new HttpError(
+			createError?.message || "Failed to create copy",
+			StatusCodes.INTERNAL_SERVER_ERROR,
+		);
+	}
+
+	// 3. Optional: Copy tags if they exist
+	const { data: originalTags } = await client
+		.from("tags_on_canvases")
+		.select("tag_id")
+		.eq("canvas_id", canvasId);
+
+	if (originalTags && originalTags.length > 0) {
+		const tagInserts = originalTags.map((t) => ({
+			canvas_id: copy.id,
+			tag_id: t.tag_id,
+		}));
+		await client.from("tags_on_canvases").insert(tagInserts);
+	}
+
+	return copy;
+};
+
+export const toggleArchiveCanvasService = async (
+	canvasId: string,
+	userId: string,
+	isArchived: boolean,
+): Promise<void> => {
+	const { error } = await getClient()
+		.from("canvases")
+		.update({ is_archived: isArchived })
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+};
+
+export const toggleStarService = async (
+	canvasId: string,
+	userId: string,
+	isStarred: boolean,
+): Promise<void> => {
+	const { error } = await getClient()
+		.from("canvases")
+		.update({ is_starred: isStarred })
+		.eq("id", canvasId)
+		.eq("owner_id", userId);
+
+	if (error) {
+		throw new HttpError(error.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+};
+
+export const getStarredCanvasesService = async (
+	userId: string,
+): Promise<
+	Pick<
+		Tables<"canvases">,
+		"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+	>[]
+> => {
+	// First get all owned canvases that are starred
+	const { data: ownedStarred, error: ownedError } = await getClient()
+		.from("canvases")
+		.select("id, name, thumbnail_url, owner_id, updated_at, is_starred")
+		.eq("owner_id", userId)
+		.eq("is_deleted", false)
+		.eq("is_starred", true);
+
+	if (ownedError) {
+		throw new HttpError(ownedError.message, StatusCodes.INTERNAL_SERVER_ERROR);
+	}
+
+	// Get shared canvases that the user has interacted with and are starred
+	// Since stars are global for now (per canvas, not per user-canvas relation)
+	// We'll trust the access map. If star is user-specific, we'd need a different schema.
+	// We assume `is_starred` is currently on the `canvases` table, so it's global for the canvas.
+	const { data: accessLogs } = await getClient()
+		.from("activity_logs")
+		.select("canvas_id")
+		.eq("user_id", userId);
+
+	const accessedIds = [
+		...new Set(
+			(accessLogs || [])
+				.map((log) => log.canvas_id)
+				.filter((id) => !(ownedStarred || []).some((c) => c.id === id)),
+		),
+	];
+
+	let sharedStarred: Pick<
+		Tables<"canvases">,
+		"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+	>[] = [];
+	if (accessedIds.length > 0) {
+		const { data: shared } = await getClient()
+			.from("canvases")
+			.select("id, name, thumbnail_url, owner_id, updated_at, is_starred")
+			.in("id", accessedIds)
+			.eq("is_deleted", false)
+			.eq("is_starred", true);
+
+		sharedStarred = shared || [];
+	}
+
+	const allStarred = [...(ownedStarred || []), ...sharedStarred];
+
+	// Deduplicate just in case
+	const dedupedMap = new Map<
+		string,
+		Pick<
+			Tables<"canvases">,
+			"id" | "name" | "thumbnail_url" | "owner_id" | "updated_at" | "is_starred"
+		>
+	>();
+	for (const canvas of allStarred) {
+		if (!dedupedMap.has(canvas.id)) {
+			dedupedMap.set(canvas.id, canvas);
+		}
+	}
+
+	const result = Array.from(dedupedMap.values());
+	result.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+	return result;
 };

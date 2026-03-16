@@ -10,8 +10,10 @@ export const globalErrorHandler = (
 ) => {
 	console.error(err);
 
-	if (err instanceof HttpError) {
-		res.status(err.statusCode).json({
+	// Use both instanceof and name check to guard against module-deduplication
+	// issues in test environments where the same package may be loaded twice.
+	if (err instanceof HttpError || err.name === "HttpError") {
+		res.status((err as HttpError).statusCode).json({
 			success: false,
 			message: err.message,
 		});

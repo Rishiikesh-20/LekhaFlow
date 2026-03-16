@@ -13,28 +13,29 @@ import { Rocket } from "lucide-react";
 export function EmptyCanvasHero() {
 	return (
 		<div
-			className="fixed inset-0 flex items-center justify-center pointer-events-none"
+			className="fixed inset-0 flex items-center justify-center pointer-events-none px-4"
 			style={{
 				zIndex: "var(--z-canvas)",
 				fontFamily: "var(--font-handwritten)",
 			}}
 		>
-			<div className="flex flex-col items-center gap-8 relative">
+			<div className="flex flex-col items-center gap-4 sm:gap-8 relative">
 				{/* Logo Icon */}
 				<div
-					className="w-16 h-16 flex items-center justify-center"
+					className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center"
 					style={{
 						background: "var(--color-accent)",
 						borderRadius: "var(--radius-xl)",
 						boxShadow: "var(--shadow-accent)",
 					}}
 				>
-					<Rocket size={32} className="text-white" />
+					<Rocket size={28} className="text-white sm:hidden" />
+					<Rocket size={32} className="text-white hidden sm:block" />
 				</div>
 
 				{/* LekhaFlow Text */}
 				<div
-					className="text-6xl font-bold text-center"
+					className="text-3xl sm:text-6xl font-bold text-center"
 					style={{
 						color: "var(--color-text-primary)",
 						fontFamily: "var(--font-handwritten)",
@@ -45,7 +46,7 @@ export function EmptyCanvasHero() {
 
 				{/* Instructional Text */}
 				<div
-					className="text-base text-center max-w-md"
+					className="text-sm sm:text-base text-center max-w-xs sm:max-w-md"
 					style={{
 						color: "var(--color-text-secondary)",
 						fontFamily: "var(--font-handwritten)",
@@ -55,10 +56,10 @@ export function EmptyCanvasHero() {
 					creating!
 				</div>
 
-				{/* Hand-drawn Arrow pointing to Toolbar */}
+				{/* Hand-drawn Arrow pointing to Toolbar — hidden on mobile */}
 				<svg
 					aria-label="Arrow pointing to toolbar"
-					className="absolute pointer-events-none"
+					className="absolute pointer-events-none hidden sm:block"
 					style={{
 						top: "-180px",
 						left: "-200px",
@@ -91,7 +92,7 @@ export function EmptyCanvasHero() {
 
 				{/* Annotation label for toolbar */}
 				<div
-					className="absolute text-sm font-medium"
+					className="absolute text-sm font-medium hidden sm:block"
 					style={{
 						top: "-140px",
 						left: "-290px",
@@ -103,10 +104,10 @@ export function EmptyCanvasHero() {
 					Pick a tool & start drawing!
 				</div>
 
-				{/* Hand-drawn Arrow pointing to Help button */}
+				{/* Hand-drawn Arrow pointing to Help button — hidden on mobile */}
 				<svg
 					aria-label="Arrow pointing to help button"
-					className="absolute pointer-events-none"
+					className="absolute pointer-events-none hidden sm:block"
 					style={{
 						bottom: "-180px",
 						right: "-250px",
@@ -139,7 +140,7 @@ export function EmptyCanvasHero() {
 
 				{/* Annotation label for help */}
 				<div
-					className="absolute text-sm font-medium"
+					className="absolute text-sm font-medium hidden sm:block"
 					style={{
 						bottom: "-120px",
 						right: "-320px",

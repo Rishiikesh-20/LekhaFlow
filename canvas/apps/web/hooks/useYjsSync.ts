@@ -15,7 +15,12 @@
 "use client";
 
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import type { CanvasElement, Collaborator, Point } from "@repo/common";
+import type {
+	CanvasElement,
+	Collaborator,
+	Point,
+	ViewportState,
+} from "@repo/common";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { ensureTextRuns } from "../lib/text-runs";
@@ -43,7 +48,9 @@ interface AwarenessState {
 		color: string;
 	};
 	cursor: Point | null;
+	laserData?: [number, number][];
 	selectedElementIds: string[];
+	viewport?: ViewportState;
 	/** Element currently being text-edited by this user */
 	editingElementId: string | null;
 }
@@ -74,10 +81,14 @@ interface UseYjsSyncReturn {
 	) => void;
 	deleteElements: (ids: string[]) => void;
 	updateCursor: (position: Point | null) => void;
+	updateLaser: (points: [number, number][] | undefined) => void;
 	updateSelection: (ids: string[]) => void;
+	updateViewport: (viewport: ViewportState) => void;
 	updateEditingElement: (id: string | null) => void;
 	getYElements: () => Y.Map<CanvasElement>;
+	getYSettings: () => Y.Map<unknown>;
 	restoreVersion: (snapshot: Record<string, CanvasElement>) => void;
+	updateSettings: (updates: Record<string, unknown>) => void;
 	undo: () => void;
 	redo: () => void;
 	canUndo: boolean;
@@ -119,6 +130,8 @@ export function useYjsSync(
 		setRoomId,
 		setSavingStatus,
 		addActivityLogEntry,
+		setCanvasBackgroundColor,
+		setGridMode,
 		myName,
 		myColor,
 	} = useCanvasStore();
@@ -158,6 +171,10 @@ export function useYjsSync(
 
 	const getYElements = useCallback((): Y.Map<CanvasElement> => {
 		return doc.getMap<CanvasElement>("elements");
+	}, [doc]);
+
+	const getYSettings = useCallback((): Y.Map<unknown> => {
+		return doc.getMap<unknown>("settings");
 	}, [doc]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -246,6 +263,27 @@ export function useYjsSync(
 			},
 		});
 
+		const ySettings = getYSettings();
+
+		// Helper to read Y.Map settings and push to store
+		const syncSettingsToStore = () => {
+			const settings = ySettings.toJSON();
+			const currentState = useCanvasStore.getState();
+
+			if (
+				settings.backgroundColor &&
+				settings.backgroundColor !== currentState.canvasBackgroundColor
+			) {
+				setCanvasBackgroundColor(settings.backgroundColor as string);
+			}
+			if (
+				settings.gridMode &&
+				settings.gridMode !== currentState.activeGridMode
+			) {
+				setGridMode(settings.gridMode as "none" | "grid" | "dots");
+			}
+		};
+
 		providerRef.current = provider;
 		setRoomId(roomId);
 
@@ -277,6 +315,7 @@ export function useYjsSync(
 				arrow: "Arrow",
 				freedraw: "Drawing",
 				text: "Text",
+				image: "Image",
 			};
 			return labels[type] || type;
 		};
@@ -365,6 +404,13 @@ export function useYjsSync(
 		yElements.observe(handleElementsChange);
 		// Initial load — call without event so no logs are generated
 		handleElementsChange();
+
+		const handleSettingsChange = () => {
+			syncSettingsToStore();
+		};
+		ySettings.observe(handleSettingsChange);
+		syncSettingsToStore();
+
 		// After initial hydration, allow future changes to be logged
 		hasSyncedRef.current = true;
 
@@ -418,8 +464,10 @@ export function useYjsSync(
 					name: awarenessState.user.name,
 					color: awarenessState.user.color,
 					cursor: awarenessState.cursor,
+					laserData: awarenessState.laserData,
 					selectedElementIds: awarenessState.selectedElementIds || [],
 					isCurrentUser: false,
+					viewport: awarenessState.viewport,
 				});
 			});
 
@@ -435,6 +483,7 @@ export function useYjsSync(
 
 		return () => {
 			yElements.unobserve(handleElementsChange);
+			ySettings.unobserve(handleSettingsChange);
 			doc.off("update", handleDocUpdate);
 			provider.off("synced", handleProviderSynced);
 			provider.awareness?.off("change", handleAwarenessChange);
@@ -466,6 +515,9 @@ export function useYjsSync(
 		setSavingStatus,
 		addActivityLogEntry,
 		getYElements,
+		getYSettings,
+		setCanvasBackgroundColor,
+		setGridMode,
 	]);
 
 	// ─────────────────────────────────────────────────────────────────
@@ -582,10 +634,22 @@ export function useYjsSync(
 		provider.awareness.setLocalStateField("cursor", position);
 	}, []);
 
+	const updateLaser = useCallback((points: [number, number][] | undefined) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("laserData", points);
+	}, []);
+
 	const updateSelection = useCallback((ids: string[]) => {
 		const provider = providerRef.current;
 		if (!provider?.awareness) return;
 		provider.awareness.setLocalStateField("selectedElementIds", ids);
+	}, []);
+
+	const updateViewport = useCallback((viewport: ViewportState) => {
+		const provider = providerRef.current;
+		if (!provider?.awareness) return;
+		provider.awareness.setLocalStateField("viewport", viewport);
 	}, []);
 
 	/** Broadcast which element the local user is currently editing (text). */
@@ -629,6 +693,18 @@ export function useYjsSync(
 		[doc, getYElements],
 	);
 
+	const updateSettings = useCallback(
+		(updates: Record<string, unknown>) => {
+			const ySettings = getYSettings();
+			doc.transact(() => {
+				for (const [key, value] of Object.entries(updates)) {
+					ySettings.set(key, value);
+				}
+			});
+		},
+		[doc, getYSettings],
+	);
+
 	const undo = useCallback(() => {
 		undoManagerRef.current?.undo();
 	}, []);
@@ -650,10 +726,14 @@ export function useYjsSync(
 		batchUpdateElements,
 		deleteElements,
 		updateCursor,
+		updateLaser,
 		updateSelection,
+		updateViewport,
 		updateEditingElement,
 		getYElements,
+		getYSettings,
 		restoreVersion,
+		updateSettings,
 		undo,
 		redo,
 		canUndo,

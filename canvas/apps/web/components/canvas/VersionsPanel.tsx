@@ -62,6 +62,7 @@ function elementTypeLabel(type: string): string {
 		arrow: "Arrow",
 		freedraw: "Drawing",
 		text: "Text",
+		image: "Image",
 	};
 	return map[type] || type;
 }
@@ -97,7 +98,7 @@ function SaveVersionModal({ onSave, onClose, saving }: SaveModalProps) {
 			style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
 		>
 			<div
-				className="w-[380px] rounded-2xl p-6"
+				className="w-[calc(100vw-32px)] sm:w-[380px] rounded-2xl p-6"
 				style={{
 					background: "#fff",
 					boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
@@ -228,7 +229,7 @@ function VersionPreviewModal({ version, onClose }: PreviewModalProps) {
 			style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}
 		>
 			<div
-				className="w-[480px] max-h-[80vh] rounded-2xl flex flex-col overflow-hidden"
+				className="w-[calc(100vw-32px)] sm:w-[480px] max-h-[80vh] rounded-2xl flex flex-col overflow-hidden"
 				style={{
 					background: "#fff",
 					boxShadow: "0 24px 64px rgba(0,0,0,0.2)",
@@ -498,7 +499,7 @@ export function VersionsPanel({ token, onRestore }: VersionsPanelProps) {
 			<div
 				className="fixed top-0 left-0 h-full z-40 flex flex-col transition-transform duration-300 ease-out"
 				style={{
-					width: 300,
+					width: "min(300px, 100vw)",
 					transform: isOpen ? "translateX(0)" : "translateX(-100%)",
 					background: "rgba(255,255,255,0.97)",
 					backdropFilter: "blur(20px)",
@@ -689,7 +690,7 @@ export function VersionsPanel({ token, onRestore }: VersionsPanelProps) {
 					}}
 				>
 					<div
-						className="w-[400px] rounded-2xl p-6"
+						className="w-[calc(100vw-32px)] sm:w-[400px] rounded-2xl p-6"
 						style={{
 							background: "#fff",
 							boxShadow: "0 24px 64px rgba(0,0,0,0.2)",

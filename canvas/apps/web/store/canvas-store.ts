@@ -125,6 +125,9 @@ interface CanvasState {
 	/** Whether the canvas is in read-only (locked) mode */
 	isReadOnly: boolean;
 
+	/** Whether the canvas is archived */
+	isArchived: boolean;
+
 	// ─────────────────────────────────────────────────────────────────
 	// TOOL STATE
 	// ─────────────────────────────────────────────────────────────────
@@ -264,6 +267,16 @@ interface CanvasState {
 
 	/** Map of element id → original element snapshot before preview */
 	aiPreviewOriginals: Map<string, CanvasElement>;
+
+	// ─────────────────────────────────────────────────────────────────
+	// CANVAS SETTINGS (Synced)
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Background color of the entire canvas */
+	canvasBackgroundColor: string;
+
+	/** Background grid mode (none, grid, dots) */
+	activeGridMode: "none" | "grid" | "dots";
 }
 
 /**
@@ -439,6 +452,9 @@ interface CanvasActions {
 	/** Toggle read-only (lock) mode */
 	setReadOnly: (isReadOnly: boolean) => void;
 
+	/** Set archived status */
+	setIsArchived: (isArchived: boolean) => void;
+
 	// ─────────────────────────────────────────────────────────────────
 	// ACTIVITY LOG ACTIONS
 	// ─────────────────────────────────────────────────────────────────
@@ -477,6 +493,16 @@ interface CanvasActions {
 
 	/** Clear AI preview state */
 	clearAiPreview: () => void;
+
+	// ─────────────────────────────────────────────────────────────────
+	// CANVAS SETTINGS ACTIONS
+	// ─────────────────────────────────────────────────────────────────
+
+	/** Set the canvas background color */
+	setCanvasBackgroundColor: (color: string) => void;
+
+	/** Set the canvas grid mode */
+	setGridMode: (mode: "none" | "grid" | "dots") => void;
 }
 
 // ============================================================================
@@ -516,6 +542,7 @@ export const initialState: CanvasState = {
 
 	// Read-only mode
 	isReadOnly: false,
+	isArchived: false,
 
 	// Tool
 	activeTool: "selection",
@@ -576,6 +603,10 @@ export const initialState: CanvasState = {
 	isAiPreviewActive: false,
 	aiPreviewChanges: new Map(),
 	aiPreviewOriginals: new Map(),
+
+	// Canvas settings
+	canvasBackgroundColor: "#ffffff",
+	activeGridMode: "dots",
 };
 
 /**
@@ -929,6 +960,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 				aiPreviewChanges: new Map(),
 				aiPreviewOriginals: new Map(),
 			}),
+
+		// ─────────────────────────────────────────────────────────────────
+		// CANVAS SETTINGS ACTIONS
+		// ─────────────────────────────────────────────────────────────────
+
+		setCanvasBackgroundColor: (color) => set({ canvasBackgroundColor: color }),
+		setGridMode: (mode) => set({ activeGridMode: mode }),
+		setIsArchived: (isArchived) => set({ isArchived }),
 	})),
 );
 
